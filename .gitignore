@@ -1,0 +1,26 @@
+# ---- NEVER publish runtime data (employee photos, outputs, DB) ----
+jobs/
+*.db
+*.sqlite
+
+# ---- credentials / secrets ----
+kaggle.json
+.kaggle/
+.env
+*.pem
+
+# ---- python ----
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+env/
+.mypy_cache/
+.pytest_cache/
+
+# ---- misc / os / logs ----
+phase0_output/
+*.log
+.DS_Store
+Thumbs.db
