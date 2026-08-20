@@ -52,8 +52,8 @@ TIMEOUT_MINUTES = 720  # 12h - a full batch can take ~8h
 
 # Per-call subprocess timeouts. Kaggle CLI hangs on network flakes without one;
 # these caps are generous but bounded so pollers can't deadlock forever.
-CLI_TIMEOUT_SECONDS = 180        # single CLI call (status/list) — 3 min
-CLI_PUSH_TIMEOUT_SECONDS = 900   # dataset/kernel push — 15 min (uploads)
+CLI_TIMEOUT_SECONDS = 180        # single CLI call (status/list) - 3 min
+CLI_PUSH_TIMEOUT_SECONDS = 900   # dataset/kernel push - 15 min (uploads)
 CLI_RETRIES = 3                  # network flakes get 3 tries with backoff
 
 # on_event(stage: str, message: str, extra: dict) -> None
@@ -113,7 +113,7 @@ def kaggle(args: list[str], env: dict, *, timeout: int | None = None,
     Kaggle's CLI hangs occasionally on transient network flakes; without a
     timeout the poller would deadlock. Push operations get the longer cap.
     Retries only kick in for a timeout or a *non-zero* exit that looks like a
-    transient network error — a successful call is always returned as-is.
+    transient network error - a successful call is always returned as-is.
     """
     is_push = bool(args) and args[0] in ("datasets", "kernels") and "push" in args
     if timeout is None:

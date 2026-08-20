@@ -11,7 +11,7 @@ pinned: false
 # FaceFoundry
 
 Turn a folder of ordinary profile photos into professional headshots, in bulk,
-for **$0** — using free Kaggle GPUs driven automatically from your PC.
+for **$0** - using free Kaggle GPUs driven automatically from your PC.
 
 The heavy AI (SDXL + InstantID) runs on Kaggle's free Tesla P100. Your PC only
 runs a small local control panel that uploads images, launches the GPU worker,
@@ -30,7 +30,7 @@ Your PC (control panel)                 Kaggle (free GPU)
 
 ## Quick start
 
-1. One-time Kaggle setup — see [SETUP.md](SETUP.md) (account, phone-verify for
+1. One-time Kaggle setup - see [SETUP.md](SETUP.md) (account, phone-verify for
    GPU, API token at `~/.kaggle/kaggle.json`).
 2. Launch the control panel:
 
@@ -45,7 +45,7 @@ Your PC (control panel)                 Kaggle (free GPU)
 4. Watch live progress → **review** the results (approve/reject, re-roll
    failures) → **download** the approved set.
 
-> First run of a job spends ~10–15 min downloading the AI models on Kaggle, then
+> First run of a job spends ~10-15 min downloading the AI models on Kaggle, then
 > a few seconds per image. Later jobs in the same Kaggle session are faster.
 
 Want to host it instead of running locally? See [DEPLOY.md](DEPLOY.md).
@@ -60,12 +60,12 @@ python app/kaggle_client.py --images test_images --style corporate --limit 3 --j
 
 The **New job** page has three ways to add photos:
 
-- **Folder** — pick a whole folder (uses `webkitdirectory`).
-- **Single / files** — pick one or more individual images.
-- **Camera** — on mobile, opens the front camera for a selfie.
+- **Folder** - pick a whole folder (uses `webkitdirectory`).
+- **Single / files** - pick one or more individual images.
+- **Camera** - on mobile, opens the front camera for a selfie.
 
 Photos are **downsized to 1600px and re-encoded to JPEG in your browser** before
-upload — this strips EXIF, keeps uploads small (20 MB → ~300 KB), and never
+upload - this strips EXIF, keeps uploads small (20 MB → ~300 KB), and never
 touches the source files on disk. The server also enforces limits: **50 files
 per job, 25 MB per file, 400 MB total**.
 
@@ -76,17 +76,17 @@ per job, 25 MB per file, 400 MB total**.
 `academic` (edit `STYLE_PRESETS` in `worker/headshot_worker.py` to add your own).
 
 **New-job options:**
-- **Resolution** — Standard 1K · High 2K · **Ultra 4K** (generated at 1024 then
+- **Resolution** - Standard 1K · High 2K · **Ultra 4K** (generated at 1024 then
   upscaled with Real-ESRGAN 4x).
-- **Render speed** — Fast (~20 steps) · Balanced (~30) · Best (~45).
-- **Face enhancement (GFPGAN)** — optional, sharper eyes/skin. Fail-safe: if the
+- **Render speed** - Fast (~20 steps) · Balanced (~30) · Best (~45).
+- **Face enhancement (GFPGAN)** - optional, sharper eyes/skin. Fail-safe: if the
   optional deps don't install it's simply skipped, never breaking the job.
-- **Pure white background** — clean corporate look (post-processed on Kaggle).
-- **Multi-reference identity** — averages L2-normalized ArcFace embeddings
+- **Pure white background** - clean corporate look (post-processed on Kaggle).
+- **Multi-reference identity** - averages L2-normalized ArcFace embeddings
   across every source photo. Recommended for 2+ photos.
-- **Background** and **extra prompt details** — free-text prompt tweaks
+- **Background** and **extra prompt details** - free-text prompt tweaks
   (sanitized server-side against nsfw/gore terms and prompt-splitting chars).
-- **Advanced** — identity strength, adapter scale, guidance, seed, limit.
+- **Advanced** - identity strength, adapter scale, guidance, seed, limit.
 
 **Review screen:** before/after grid, per-image download, download approved / all,
 **Approve all / Reject all**, keyboard review (**A** keep · **R** reject · **J/K**
@@ -95,7 +95,7 @@ Live runs show a progress ring + stepper and fire a browser notification when do
 
 ## Faster runs (model cache)
 
-Each Kaggle run re-downloads ~10 GB of models (~10–15 min). Build the cache **once**:
+Each Kaggle run re-downloads ~10 GB of models (~10-15 min). Build the cache **once**:
 
 ```bash
 python app/kaggle_client.py --build-cache
@@ -103,7 +103,7 @@ python app/kaggle_client.py --build-cache
 
 This runs a one-off Kaggle kernel that downloads all models and publishes them as a
 private **`facefoundry-models`** dataset. After that, every job auto-attaches it and the
-worker loads models from it instead of downloading — cutting most of the setup wait.
+worker loads models from it instead of downloading - cutting most of the setup wait.
 
 ## Image Settings editor
 
@@ -139,20 +139,20 @@ facefoundry/
 
 ## How a job flows
 
-1. **Package** — your photos + a `job.json` (style, sliders) are copied into
+1. **Package** - your photos + a `job.json` (style, sliders) are copied into
    `jobs/<id>/input/`.
-2. **Upload** — pushed as a **private** Kaggle dataset (employee photos stay
+2. **Upload** - pushed as a **private** Kaggle dataset (employee photos stay
    private by default).
-3. **Launch** — the worker kernel starts on a GPU with the dataset attached.
-4. **Poll** — the control panel waits for completion.
-5. **Download** — headshots land in `jobs/<id>/output/headshots_out/`, with a
+3. **Launch** - the worker kernel starts on a GPU with the dataset attached.
+4. **Poll** - the control panel waits for completion.
+5. **Download** - headshots land in `jobs/<id>/output/headshots_out/`, with a
    structured `results.json` (per-image status/seed) and a `run.log`.
 
 ## Safety hardening
 
 - Uploads capped at 50 files / 25 MB per file / 400 MB total, PIL-verified
   after upload.
-- Every path route regex-validates `job_id` and image stem — no glob leaks.
+- Every path route regex-validates `job_id` and image stem - no glob leaks.
 - Kaggle CLI calls have per-call timeouts (180 s / 900 s push) and retry 3x on
   transient errors.
 - `POST /jobs/{id}/cancel` cancels a running kernel; deleting a job also cancels.
@@ -163,20 +163,20 @@ facefoundry/
 
 ## Hosting extras
 
-- **`/healthz`** — open endpoint (bypasses the password gate) so hosting
+- **`/healthz`** - open endpoint (bypasses the password gate) so hosting
   platforms can health-check without credentials.
-- **Password gate (optional)** — set `FACEFOUNDRY_PASSWORD` (and optionally
+- **Password gate (optional)** - set `FACEFOUNDRY_PASSWORD` (and optionally
   `FACEFOUNDRY_USER`, default `team`) as env vars on the host to gate every
   route except `/healthz` behind HTTP basic auth.
 
 ## Troubleshooting
 
-- **Job fails instantly at auth** — check `~/.kaggle/kaggle.json`. New `KGAT_`
+- **Job fails instantly at auth** - check `~/.kaggle/kaggle.json`. New `KGAT_`
   tokens are handled automatically (passed via `KAGGLE_API_TOKEN`).
-- **Kernel errors** — open the job page → **run.log** link, or read
+- **Kernel errors** - open the job page → **run.log** link, or read
   `jobs/<id>/output/run.log`. The worker tees everything there even when Kaggle
   drops its own log.
-- **"no face detected"** — the source photo needs a reasonably clear, front-ish
+- **"no face detected"** - the source photo needs a reasonably clear, front-ish
   face. Re-roll or swap the photo.
 
 ## Cost
@@ -189,4 +189,4 @@ facefoundry/
 | **Total** | **$0** |
 
 Upgrade path if the free tier is ever too slow: swap the GPU backend (Replicate,
-RunPod, Colab Pro) — the UI and worker stay the same.
+RunPod, Colab Pro) - the UI and worker stay the same.

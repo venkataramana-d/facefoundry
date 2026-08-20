@@ -63,7 +63,7 @@ class TestParseKernelState:
 
     def test_error_word_in_ref_is_not_state(self):
         # A kernel ref that mentions 'error' or 'worker' must not be misparsed
-        # as an actual ERROR state — this was a real bug historically.
+        # as an actual ERROR state - this was a real bug historically.
         assert _parse_kernel_state('owner/error-worker-job has status "KernelWorkerStatus.RUNNING"') == "running"
 
     def test_unknown_falls_back(self):

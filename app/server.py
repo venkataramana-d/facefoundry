@@ -308,7 +308,7 @@ def _sidebar(active: str) -> str:
                   f'<span class="ji-name">{escape(j["id"])}</span>'
                   f'<span class="ji-meta">{escape(meta)}</span></a>')
     if not items:
-        items = '<div class="jempty">No jobs yet</div>'
+        items = '<div class="jempty">No jobs yet. Create one to get started.</div>'
 
     return f"""
     <aside class=sidebar>
@@ -377,7 +377,7 @@ h2 {{ font-size:12px; text-transform:uppercase; letter-spacing:.7px; color:var(-
 details.panel > summary {{ cursor:pointer; font-weight:600; font-size:14px; list-style:none; }}
 details.panel > summary::-webkit-details-marker {{ display:none; }}
 details.panel > summary::before {{ content:"+"; display:inline-block; width:18px; color:var(--accent); font-weight:700; }}
-details.panel[open] > summary::before {{ content:"–"; }}
+details.panel[open] > summary::before {{ content:"-"; }}
 .hint {{ font-size:12.5px; color:var(--faint); line-height:1.5; }}
 /* segmented control */
 .seg {{ display:grid; grid-auto-flow:column; grid-auto-columns:1fr; gap:8px; }}
@@ -593,18 +593,21 @@ def home() -> HTMLResponse:
                       f'<span class=segh>{escape(hint)}</span></span></label>')
         return f'<div class=seg>{cells}</div>'
 
-    topbar = ('<div class=tt>New job<small>Generate professional headshots from a folder of photos</small></div>'
-              f'<button class=btn form=jobform type=submit>{ICON["spark"]} Generate</button>')
+    topbar = ('<div class=tt>Create a new job'
+              '<small>Turn ordinary photos into professional headshots. Follow the 5 steps, then click Generate.</small></div>'
+              f'<button class=btn form=jobform type=submit>{ICON["spark"]} Generate headshots</button>')
 
     content = f"""
     <form id=jobform action="/jobs" method="post" enctype="multipart/form-data">
       <div class=split>
         <div class=panel>
-          <h2>1 · Source photos</h2>
+          <h2>Step 1. Add your photos</h2>
+          <p class=hint style="margin:-6px 0 12px">Add the faces you want turned into headshots.
+            One clear, front-facing photo per person gives the best result. Choose how to add them:</p>
           <div class=upmode style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap">
-            <button type=button class="btn sm on" id=mode-folder onclick="setMode('folder')">Folder</button>
-            <button type=button class="btn sm" id=mode-files onclick="setMode('files')">Single / files</button>
-            <button type=button class="btn sm" id=mode-camera onclick="setMode('camera')">Camera</button>
+            <button type=button class="btn sm on" id=mode-folder onclick="setMode('folder')">A whole folder</button>
+            <button type=button class="btn sm" id=mode-files onclick="setMode('files')">One or more files</button>
+            <button type=button class="btn sm" id=mode-camera onclick="setMode('camera')">Take a photo</button>
           </div>
           <div class=dropzone id=dz>
             <input id=images-folder type=file accept="image/*" multiple webkitdirectory
@@ -615,43 +618,50 @@ def home() -> HTMLResponse:
                    onchange="onPick(event)" style="display:none">
             <div>
               <div class=dz-ic>{ICON['folder']}</div>
-              <div class=dz-t id=dz-title>Drop a folder here, or click to browse</div>
-              <div class=dz-s id=dz-sub>Clear, front-facing faces work best · JPG / PNG</div>
+              <div class=dz-t id=dz-title>Drop a folder here, or click to choose one</div>
+              <div class=dz-s id=dz-sub>Best results with clear, front-facing faces. JPG or PNG.</div>
               <div class=dz-count id=dzc></div>
             </div>
           </div>
           <div id=thumbs class=thumbs style="display:none;margin-top:12px;grid-template-columns:repeat(auto-fill,minmax(84px,1fr));gap:8px"></div>
           <div id=upstats class=hint style="margin-top:8px;display:none"></div>
-          <p class=hint style="margin:14px 0 0">Runs on a free cloud GPU. First job of a session
-            spends ~10-15 min downloading the AI models, then a few seconds per photo; later jobs are quicker.
-            Photos are resized to 1600px and EXIF-stripped in your browser before upload — private and fast.</p>
+          <p class=hint style="margin:14px 0 0"><b>What to expect:</b> the work runs on a free cloud GPU.
+            The first job in a session takes about 10 to 15 minutes while the AI models download, then only
+            a few seconds per photo. Later jobs are much faster. Your photos are resized and stripped of
+            location data in your browser before upload, so they stay private and upload quickly.</p>
         </div>
 
         <div class="stack">
           <div class=panel>
-            <h2>2 · Style <span class=faint style="text-transform:none;letter-spacing:0;font-weight:400">· {len(STYLES)} presets</span></h2>
+            <h2>Step 2. Choose a style</h2>
+            <p class=hint style="margin:-6px 0 12px">The style sets the outfit, background, and lighting of
+              the finished headshot. Pick the look that suits your team ({len(STYLES)} to choose from).</p>
             <div class=styles>{style_rows}</div>
           </div>
           <div class=panel>
-            <h2>3 · Output quality</h2>
+            <h2>Step 3. Output quality</h2>
+            <p class=hint style="margin:-6px 0 12px">Higher resolution and slower speed give a sharper,
+              more detailed headshot, but take a little longer to render.</p>
             <label>Resolution</label>{_seg("resolution", RESOLUTIONS, "2048")}
             <label style="margin-top:16px">Render speed</label>{_seg("speed", SPEEDS, "balanced")}
           </div>
           <div class=panel>
-            <h2>4 · Enhance &amp; personalize</h2>
+            <h2>Step 4. Finishing touches <span class=faint style="text-transform:none;letter-spacing:0;font-weight:400">(optional)</span></h2>
+            <p class=hint style="margin:-6px 0 12px">Optional extras to polish the result. The defaults are
+              a good starting point, so you can safely leave them as they are.</p>
             <label class=switch><input type=checkbox name=face_enhance value=1 checked>
-              <span class=track></span><span>Face enhancement (GFPGAN) — sharper eyes &amp; skin</span></label>
+              <span class=track></span><span>Sharpen the face (recommended) - cleaner eyes, skin, and detail</span></label>
             <label class=switch style="margin-top:12px"><input type=checkbox name=white_background value=1>
-              <span class=track></span><span>Pure white background — clean corporate look</span></label>
+              <span class=track></span><span>Pure white background - the clean, formal corporate look</span></label>
             <label class=switch style="margin-top:12px"><input type=checkbox name=multi_reference value=1 checked>
-              <span class=track></span><span>Multi-reference identity — average faces across all your photos (recommended for 2+ photos)</span></label>
-            <label style="margin-top:14px">Background <span class=faint>(optional)</span></label>
-            <input name=background placeholder="e.g. soft teal, warm grey, office bokeh">
-            <label style="margin-top:14px">Extra prompt details <span class=faint>(optional)</span></label>
-            <input name=custom_prompt placeholder="e.g. wearing glasses, warm smile">
+              <span class=track></span><span>Use every photo of a person (recommended) - blends all their photos for a truer likeness</span></label>
+            <label style="margin-top:14px">Custom background <span class=faint>(optional)</span></label>
+            <input name=background placeholder="Describe a background, e.g. soft teal, warm grey, office blur">
+            <label style="margin-top:14px">Extra details <span class=faint>(optional)</span></label>
+            <input name=custom_prompt placeholder="Add anything to include, e.g. wearing glasses, warm smile">
           </div>
           <details class=panel>
-            <summary>5 · Advanced <span class=faint>(identity, guidance, seed…)</span></summary>
+            <summary>Step 5. Advanced settings <span class=faint>(optional - identity, guidance, seed)</span></summary>
             <div class=field-row style="margin-top:16px">
               <div><label>Limit</label><input name=limit type=number min=1 placeholder="all"></div>
               <div><label>Job name</label><input name=job_name placeholder="auto"></div>
@@ -894,7 +904,7 @@ def job_page(job_id: str) -> HTMLResponse:
     j = db.get_job(job_id)
     if not j:
         return HTMLResponse(_shell("Not found", "", '<div class=tt>Not found</div>',
-                                   '<div class="panel empty">That job does not exist. <a href="/">New job</a></div>'), 404)
+                                   '<div class="panel empty">We could not find that job. It may have been deleted. <a href="/">Start a new job</a>.</div>'), 404)
     if j["status"] in ("queued", "running"):
         return HTMLResponse(_progress_page(j))
     if j["status"] == "failed":
@@ -924,7 +934,8 @@ def _progress_page(j: dict) -> str:
     total = len(STEPS)
     pct = round(step / total * 100)
     now_title = STEPS[min(step, total) - 1][0]
-    topbar = (f'<div class=tt>{escape(jid)}<small>Live run · started {escape(j["created_at"] or "")}</small></div>'
+    topbar = (f'<div class=tt>Generating your headshots'
+              f'<small>Job {escape(jid)}, started {escape(j["created_at"] or "")}. This page updates on its own.</small></div>'
               f'<div class=actions>{_delete_form(jid)}'
               f'<a class="btn ghost sm" href="/">{ICON["back"]} All jobs</a></div>')
     content = f"""
@@ -942,11 +953,12 @@ def _progress_page(j: dict) -> str:
         </div>
       </div>
       <div class=panel>
-        <h2>Progress</h2>
+        <h2>What is happening now</h2>
         <div id=stepper>{_stepper_html(step, j['status'])}</div>
         <p class=faint style="font-size:13px;margin:20px 0 0;border-top:1px solid var(--line);padding-top:16px">
-          The GPU worker runs on Kaggle - the first run downloads the AI models (~10-15 min),
-          then a few seconds per face. You can leave this page; progress is saved.</p>
+          The AI runs on a free cloud GPU. The first run downloads the models, which takes about
+          10 to 15 minutes, then each face takes only a few seconds. You can safely close this tab and
+          come back later, your progress is saved.</p>
       </div>
     </div>
     <script>
@@ -993,16 +1005,18 @@ def _failed_page(j: dict) -> str:
     log = JOBS_DIR / jid / "output" / "run.log"
     loglink = (f'<a class="btn ghost sm" href="/jobs/{jid}/file/run.log">View worker log</a>'
                if log.is_file() else "")
-    topbar = (f'<div class=tt>{escape(jid)}<small>Run failed at step {j["step"] or "?"}</small></div>'
+    topbar = (f'<div class=tt>This job could not finish'
+              f'<small>Job {escape(jid)} stopped at step {j["step"] or "?"} of {len(STEPS)}.</small></div>'
               f'<div class=actions>{_delete_form(jid)}'
               f'<a class="btn ghost sm" href="/">{ICON["back"]} All jobs</a></div>')
     content = f"""
     <div class=panel>
-      <h2 style="color:var(--bad);display:flex;gap:8px;align-items:center">{ICON['alert']} This job failed</h2>
-      <p class=muted style="margin-top:0">Stopped during <b>{escape(j['stage'] or 'unknown')}</b>.</p>
+      <h2 style="color:var(--bad);display:flex;gap:8px;align-items:center">{ICON['alert']} Something went wrong</h2>
+      <p class=muted style="margin-top:0">The job stopped while it was <b>{escape(j['stage'] or 'starting up')}</b>.
+        The technical details are below. If it is not clear, open the worker log or just start a new job and try again.</p>
       <pre class=err>{escape(j['error'] or j['message'] or 'Unknown error')}</pre>
       <div class=actions style="margin-top:16px">{loglink}
-        <a class="btn sm" href="/">{ICON['plus']} New job</a></div>
+        <a class="btn sm" href="/">{ICON['plus']} Start a new job</a></div>
     </div>"""
     return _shell(f"{jid} · Failed", "", topbar, content)
 
@@ -1039,11 +1053,13 @@ def _review_page(j: dict) -> str:
     approved_n = sum(1 for d in reviews.values() if d == "approved")
     # re-run same faces with a different style
     style_opts = "".join(f'<option value="{v}">{escape(n)}</option>' for v, n, _ in STYLES)
-    topbar = (f'<div class=tt>{escape(jid)}<small>Review · before / after · keyboard: A keep · R reject · J/K move</small></div>'
+    topbar = (f'<div class=tt>Review your headshots'
+              f'<small>Each card shows the original next to the new headshot. Keep the ones you like, then download. '
+              f'Keyboard: A to keep, R to reject, J and K to move.</small></div>'
               f'<div class=actions>'
-              f'<a class="btn ghost sm" href="/jobs/{jid}/edit">{ICON["edit"]} Batch edit</a>'
-              f'<a class="btn sm" href="/jobs/{jid}/download?scope=approved">{ICON["download"]} Approved</a>'
-              f'<a class="btn ghost sm" href="/jobs/{jid}/download?scope=all">{ICON["download"]} All</a>'
+              f'<a class="btn ghost sm" href="/jobs/{jid}/edit">{ICON["edit"]} Edit all</a>'
+              f'<a class="btn sm" href="/jobs/{jid}/download?scope=approved">{ICON["download"]} Download kept</a>'
+              f'<a class="btn ghost sm" href="/jobs/{jid}/download?scope=all">{ICON["download"]} Download all</a>'
               f'{_delete_form(jid)}</div>')
     content = f"""
     <div class=stats>
@@ -1054,18 +1070,18 @@ def _review_page(j: dict) -> str:
     </div>
     <div class=panel style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;justify-content:space-between">
       <div class=actions>
-        <button class="btn ok sm" onclick="bulk('approved')">{ICON["check"]} Approve all</button>
+        <button class="btn ok sm" onclick="bulk('approved')">{ICON["check"]} Keep all</button>
         <button class="btn ghost sm" onclick="bulk('rejected')">{ICON["x"]} Reject all</button>
-        <form action="/jobs/{jid}/reroll" method=post style=margin:0>
-          <button class="btn ghost sm" type=submit>{ICON["reroll"]} Re-roll failed/rejected</button></form>
+        <form action="/jobs/{jid}/reroll" method=post style=margin:0 title="Generate fresh versions of the failed and rejected photos">
+          <button class="btn ghost sm" type=submit>{ICON["reroll"]} Retry the rejected ones</button></form>
       </div>
-      <form action="/jobs/{jid}/rerun" method=post class=actions style="margin:0;align-items:center">
-        <span class=faint style="font-size:13px">Try another style:</span>
+      <form action="/jobs/{jid}/rerun" method=post class=actions style="margin:0;align-items:center" title="Run the same faces again in a different style">
+        <span class=faint style="font-size:13px">Try a different style:</span>
         <select name=style style="width:auto">{style_opts}</select>
-        <button class="btn ghost sm" type=submit>{ICON["spark"]} Re-run</button>
+        <button class="btn ghost sm" type=submit>{ICON["spark"]} Run again</button>
       </form>
     </div>
-    <div class=gallery>{tiles or '<div class="panel empty">No results.</div>'}</div>
+    <div class=gallery>{tiles or '<div class="panel empty">No headshots to show yet.</div>'}</div>
     <div id=toast></div>
     <script>
     function toast(m) {{ const t=document.getElementById('toast'); t.textContent=m; t.classList.add('show');
@@ -1115,7 +1131,7 @@ _EDITOR_BODY = """
   <div class=canvas-wrap><canvas id=cv width=560 height=560></canvas></div>
   <div class=panel>
     <div class=ed-sec>
-      <h3>Frame</h3>
+      <h3>Crop and frame</h3>
       <div class=chips id=aspects>
         <span class="chip on" data-r="1">1:1</span>
         <span class=chip data-r="0.8">4:5</span>
@@ -1125,12 +1141,12 @@ _EDITOR_BODY = """
       <div class=ed-status>Drag the image to reposition.</div>
     </div>
     <div class=ed-sec>
-      <h3>Adjust</h3>
+      <h3>Colour and light</h3>
       <div class=slider><label>Brightness</label><input id=brightness type=range min=50 max=150 value=100></div>
       <div class=slider><label>Contrast</label><input id=contrast type=range min=50 max=150 value=100></div>
       <div class=slider><label>Saturation</label><input id=saturation type=range min=0 max=200 value=100></div>
       <div class=slider><label>Warmth</label><input id=warmth type=range min=-50 max=50 value=0></div>
-      <button class="btn ghost sm" id=resetadj type=button>Reset adjustments</button>
+      <button class="btn ghost sm" id=resetadj type=button>Reset colours</button>
     </div>
     <div class=ed-sec>
       <h3>Background</h3>
@@ -1142,7 +1158,7 @@ _EDITOR_BODY = """
       <div class=ed-status id=bgstatus>Removes background and fills with the color (matches the corporate look).</div>
     </div>
     <div class=ed-sec>
-      <h3>Logo overlay</h3>
+      <h3>Add a logo</h3>
       <input id=logofile type=file accept="image/*">
       <div class=slider><label>Size</label><input id=logoscale type=range min=5 max=40 value=18></div>
       <div class=slider><label>Opacity</label><input id=logoop type=range min=20 max=100 value=100></div>
@@ -1154,7 +1170,7 @@ _EDITOR_BODY = """
         <select id=exsize><option value=1024>1K</option><option value=2048 selected>2K</option><option value=4096>4K</option></select></div>
       <div class=slider><label>Format</label>
         <select id=exfmt><option value=jpeg>JPG</option><option value=png>PNG</option></select></div>
-      <button class=btn id=download type=button style="width:100%">Download edited image</button>
+      <button class=btn id=download type=button style="width:100%">Download this headshot</button>
     </div>
   </div>
 </div>
@@ -1278,8 +1294,8 @@ _EDITOR_BODY = """
 def editor_page(job_id: str, stem: str) -> HTMLResponse:
     if not _output_path(job_id, stem):
         return HTMLResponse(_shell("Not found", "", '<div class=tt>Not found</div>',
-                                   '<div class="panel empty">That image does not exist.</div>'), 404)
-    topbar = (f'<div class=tt>Image settings<small>{escape(job_id)} · {escape(stem)}</small></div>'
+                                   '<div class="panel empty">We could not find that image. It may have been deleted.</div>'), 404)
+    topbar = (f'<div class=tt>Fine-tune this headshot<small>Crop, adjust the colours, swap the background, or add a logo, then download. Job {escape(job_id)}, photo {escape(stem)}.</small></div>'
               f'<a class="btn ghost sm" href="/jobs/{escape(job_id)}">{ICON["back"]} Back to review</a>')
     body = _EDITOR_BODY.replace("__JID__", job_id).replace("__STEM__", stem)
     return HTMLResponse(_shell(f"Edit {stem}", "", topbar, body))
@@ -1294,14 +1310,14 @@ _BATCH_BODY = """
     <div class=ed-sec>
       <h3>Preset</h3>
       <div class=slider><label>Saved</label>
-        <select id=presetsel><option value="">— choose —</option></select></div>
+        <select id=presetsel><option value="">- choose -</option></select></div>
       <div class=chips>
         <button class="btn ghost sm" id=savepreset type=button>Save current</button>
         <button class="btn ghost sm" id=delpreset type=button>Delete</button>
       </div>
     </div>
     <div class=ed-sec>
-      <h3>Frame</h3>
+      <h3>Crop and frame</h3>
       <div class=chips id=aspects>
         <span class="chip on" data-r="1">1:1</span>
         <span class=chip data-r="0.8">4:5</span>
@@ -1310,7 +1326,7 @@ _BATCH_BODY = """
       <div class=slider><label>Zoom</label><input id=zoom type=range min=100 max=300 value=100></div>
     </div>
     <div class=ed-sec>
-      <h3>Adjust</h3>
+      <h3>Colour and light</h3>
       <div class=slider><label>Brightness</label><input id=brightness type=range min=50 max=150 value=100></div>
       <div class=slider><label>Contrast</label><input id=contrast type=range min=50 max=150 value=100></div>
       <div class=slider><label>Saturation</label><input id=saturation type=range min=0 max=200 value=100></div>
@@ -1322,7 +1338,7 @@ _BATCH_BODY = """
       <div class=slider style="margin-top:10px"><label>Fill color</label><input id=bgcolor type=color value="#ffffff"></div>
     </div>
     <div class=ed-sec>
-      <h3>Logo overlay</h3>
+      <h3>Add a logo</h3>
       <input id=logofile type=file accept="image/*">
       <div class=slider><label>Size</label><input id=logoscale type=range min=5 max=40 value=18></div>
       <div class=slider><label>Opacity</label><input id=logoop type=range min=20 max=100 value=100></div>
@@ -1402,7 +1418,7 @@ _BATCH_BODY = """
   // presets (localStorage; logo not stored)
   function presets(){ try{ return JSON.parse(localStorage.getItem('ff_presets')||'{}'); }catch(e){ return {}; } }
   function refreshPresets(){ var sel=document.getElementById('presetsel'), p=presets();
-    sel.innerHTML='<option value="">— choose —</option>'; Object.keys(p).forEach(function(k){ var o=document.createElement('option'); o.value=k; o.textContent=k; sel.appendChild(o); }); }
+    sel.innerHTML='<option value="">- choose -</option>'; Object.keys(p).forEach(function(k){ var o=document.createElement('option'); o.value=k; o.textContent=k; sel.appendChild(o); }); }
   document.getElementById('savepreset').onclick=function(){ var name=prompt('Preset name:'); if(!name) return;
     var p=presets(); p[name]=st; localStorage.setItem('ff_presets', JSON.stringify(p)); refreshPresets(); document.getElementById('presetsel').value=name; };
   document.getElementById('delpreset').onclick=function(){ var sel=document.getElementById('presetsel'); if(!sel.value) return;
@@ -1452,8 +1468,8 @@ def batch_editor_page(job_id: str) -> HTMLResponse:
              if r.get("status") == "ok" and _output_path(job_id, r["stem"])]
     if not j or not stems:
         return HTMLResponse(_shell("Batch edit", "", '<div class=tt>Batch edit</div>',
-                                   '<div class="panel empty">No headshots to edit yet.</div>'), 404)
-    topbar = (f'<div class=tt>Batch image settings<small>{escape(job_id)} · {len(stems)} headshots</small></div>'
+                                   '<div class="panel empty">There are no finished headshots to edit yet. Run a job first, then come back.</div>'), 404)
+    topbar = (f'<div class=tt>Edit every headshot at once<small>Set it up once below, then apply the same crop, colours, background, and logo to all {len(stems)} headshots and download them as a zip.</small></div>'
               f'<a class="btn ghost sm" href="/jobs/{escape(job_id)}">{ICON["back"]} Back to review</a>')
     body = (_BATCH_BODY.replace("__JID__", job_id)
             .replace("__STEMS__", json.dumps(stems))

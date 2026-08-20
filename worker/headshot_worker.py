@@ -1,5 +1,5 @@
 """
-FaceFoundry worker — runs ON Kaggle as a GPU script kernel.
+FaceFoundry worker - runs ON Kaggle as a GPU script kernel.
 
 This is the parameterized version of the original notebook.py. Instead of
 hard-coded globals it reads a `job.json` (uploaded by the local orchestrator
@@ -101,7 +101,7 @@ def load_job() -> dict:
         print(f"[job] loaded {matches[0]}")
     else:
         cfg = {"input_mode": "images"}
-        print("[job] no job.json found — using defaults (input_mode=images)")
+        print("[job] no job.json found - using defaults (input_mode=images)")
     cfg.setdefault("job_id", "job")
     cfg.setdefault("input_mode", "images")
     cfg.setdefault("url_column", "url")
@@ -146,7 +146,7 @@ def sanitize_user_text(s: str, max_len: int) -> str:
     low = s.lower()
     if any(w in low for w in _PROMPT_BLOCKLIST):
         return ""
-    # Keep it to letters/digits/space/punctuation — no prompt-splitting tokens.
+    # Keep it to letters/digits/space/punctuation - no prompt-splitting tokens.
     keep = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 ,.-_+&"
     cleaned = "".join(c for c in s if c in keep).strip()
     return cleaned[:max_len]
@@ -196,7 +196,7 @@ def install_deps():
     # This InstantID stack (insightface 0.7.3, onnxruntime 1.17.1, opencv) was
     # built against NumPy 1.x. Kaggle's current base ships NumPy 2.x, which
     # breaks their compiled extensions on import ("numpy.core.multiarray failed
-    # to import") — a hard crash with no Python traceback. Pin NumPy<2 first.
+    # to import") - a hard crash with no Python traceback. Pin NumPy<2 first.
     sh("pip install -q 'numpy<2'")
     # CRITICAL: Kaggle's default PyTorch (a cu128 build) DROPPED Pascal support -
     # its lowest arch is sm_70. But Kaggle frequently assigns a Tesla P100 (sm_60),
@@ -260,7 +260,7 @@ def fetch_models():
     print("[setup] downloading InsightFace antelopev2...", flush=True)
     # NOTE: antelopev2.zip already contains a top-level `antelopev2/` folder, so
     # it must be extracted into the MODELS dir (…/models/), which yields
-    # …/models/antelopev2/*.onnx — the layout insightface expects. Extracting
+    # …/models/antelopev2/*.onnx - the layout insightface expects. Extracting
     # into …/models/antelopev2/ would nest it as …/antelopev2/antelopev2/*.onnx
     # and FaceAnalysis(name="antelopev2") would find no models. (confirmed bug)
     models_root = Path("/root/.insightface/models")
@@ -291,7 +291,7 @@ def build_pipeline(cfg):
     )
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    assert device == "cuda", "GPU not detected — enable GPU accelerator on the kernel."
+    assert device == "cuda", "GPU not detected - enable GPU accelerator on the kernel."
 
     # GPU / build diagnostics. `cudaErrorNoKernelImageForDevice` happens when the
     # installed CUDA kernels weren't compiled for this GPU's compute capability.
@@ -342,7 +342,7 @@ def gather_sources(cfg) -> list:
     if cfg["input_mode"] == "urls":
         return _gather_from_urls(cfg)
 
-    # images mode: only pull from the input dataset — the one that also carries
+    # images mode: only pull from the input dataset - the one that also carries
     # job.json. Skips the model-cache dataset (which may contain PNG/JPG assets)
     # and any other attached extras. Fallback to full scan only if job.json is
     # not found (legacy behavior).
@@ -355,7 +355,7 @@ def gather_sources(cfg) -> list:
             if p.is_file() and p.suffix.lower() in IMAGE_EXTS and p.name != "job.json":
                 sources.append((p.stem, str(p)))
     else:
-        # Legacy fallback — still exclude non-image files.
+        # Legacy fallback - still exclude non-image files.
         for p in sorted(INPUT_ROOT.glob("**/*")):
             if p.suffix.lower() in IMAGE_EXTS and p.is_file():
                 sources.append((p.stem, str(p)))
@@ -495,7 +495,7 @@ def make_processor(cfg, pipe, face_app, draw_kps, device):
 
     preset = STYLE_PRESETS.get(cfg["style_preset"], STYLE_PRESETS["corporate"])
     prompt, negative = preset["prompt"], preset["negative"]
-    # Sanitize user prompt tweaks before they touch the SDXL prompt — blocks
+    # Sanitize user prompt tweaks before they touch the SDXL prompt - blocks
     # nsfw/violence injection via the "background" and "custom prompt" fields.
     bg_txt = sanitize_user_text(cfg.get("background", ""), 80)
     cust_txt = sanitize_user_text(cfg.get("custom_prompt", ""), 200)
@@ -522,7 +522,7 @@ def make_processor(cfg, pipe, face_app, draw_kps, device):
         face = sorted(faces, key=lambda x: (x["bbox"][2] - x["bbox"][0]) * (x["bbox"][3] - x["bbox"][1]),
                       reverse=True)[0]
         kps = draw_kps(Image.fromarray(cv2.cvtColor(img, cv2.COLOR_BGR2RGB)), face["kps"])
-        # Use the averaged batch embedding when caller supplied one — sharper
+        # Use the averaged batch embedding when caller supplied one - sharper
         # identity across a batch of the same person's photos.
         embedding = avg_embedding if avg_embedding is not None else face["embedding"]
         gen = torch.Generator(device=device).manual_seed(seed)
@@ -666,7 +666,7 @@ def _run(t_start):
 
 def main():
     """Tee all output to run.log and guarantee a results.json is written even if
-    setup crashes hard — so the orchestrator always gets a diagnosable artifact."""
+    setup crashes hard - so the orchestrator always gets a diagnosable artifact."""
     WORKING.mkdir(parents=True, exist_ok=True)
     TMP.mkdir(parents=True, exist_ok=True)
     t_start = time.time()

@@ -1,4 +1,4 @@
-# FaceFoundry control panel — deployable to any persistent host (Render, Railway,
+# FaceFoundry control panel - deployable to any persistent host (Render, Railway,
 # Fly.io, a VM). NOT for Vercel/serverless: the app runs long-lived background
 # threads, writes SQLite + files, and shells out to the Kaggle CLI.
 FROM python:3.12-slim
@@ -13,7 +13,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-# Non-root runtime. The app writes to jobs/ and ~/.kaggle — pre-create and chown
+# Non-root runtime. The app writes to jobs/ and ~/.kaggle - pre-create and chown
 # so it never needs root to bootstrap.
 RUN groupadd -r ff && useradd -r -g ff -d /app -s /sbin/nologin ff \
  && mkdir -p /app/jobs /home/ff/.kaggle \

@@ -14,7 +14,7 @@ from .kaggle_client import JobError, resume_job, run_job
 
 # job_id -> Thread, so we can tell if a job is still actively running.
 # Guarded by _threads_lock because HTTP handlers and background threads both
-# read/write this dict — an unlocked dict race can leak zombie references.
+# read/write this dict - an unlocked dict race can leak zombie references.
 _threads: dict[str, threading.Thread] = {}
 _threads_lock = threading.Lock()
 

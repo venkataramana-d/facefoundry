@@ -1,4 +1,4 @@
-# One-click deploy to Render (https://render.com) — a persistent host that can
+# One-click deploy to Render (https://render.com) - a persistent host that can
 # actually run FaceFoundry (unlike Vercel/serverless).
 #   1. Push this repo to GitHub.
 #   2. Render → New → Blueprint → pick this repo.
