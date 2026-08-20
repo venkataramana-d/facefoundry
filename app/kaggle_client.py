@@ -206,12 +206,14 @@ def wait_for_dataset(dataset_ref: str, env: dict, on_event: EventFn = None, trie
     _emit(on_event, "dataset", "waiting for dataset to finish processing")
     for _ in range(tries):
         r = kaggle(["datasets", "status", dataset_ref], env)
-        s = (r.stdout + r.stderr).strip().lower()
+        # Strip the dataset ref before matching so a job named e.g. "error-fix"
+        # (ref headshot-input-error-fix) can't trigger a false "error"/"ready".
+        s = (r.stdout + r.stderr).strip().lower().replace(dataset_ref.lower(), "")
         if "ready" in s:
             _emit(on_event, "dataset", "dataset ready")
             return
         if "error" in s:
-            raise JobError(f"dataset processing failed: {s}")
+            raise JobError(f"dataset processing failed: {(r.stdout + r.stderr).strip()}")
         time.sleep(10)
     _emit(on_event, "dataset", "status not confirmed 'ready' - proceeding anyway")
 
