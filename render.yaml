@@ -19,3 +19,7 @@ services:
         sync: false          # set in the Render dashboard (secret)
       - key: KAGGLE_KEY
         sync: false
+      - key: FACEFOUNDRY_PASSWORD
+        sync: false          # site password (share with your manager)
+      - key: FACEFOUNDRY_USER
+        value: team          # username to go with the password

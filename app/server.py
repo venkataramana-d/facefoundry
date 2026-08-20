@@ -18,8 +18,11 @@ workspace that swaps content per route.
 
 from __future__ import annotations
 
+import base64
 import io
 import json
+import os
+import secrets
 import time
 import zipfile
 from html import escape
@@ -27,12 +30,36 @@ from pathlib import Path
 
 from fastapi import FastAPI, File, Form, UploadFile
 from fastapi.responses import (FileResponse, HTMLResponse, JSONResponse,
-                               RedirectResponse, StreamingResponse)
+                               RedirectResponse, Response, StreamingResponse)
 
 from . import db, runner
 from .kaggle_client import JOBS_DIR, slugify_job_id
 
 app = FastAPI(title="FaceFoundry")
+
+# Optional password gate for hosted deployments. Set FACEFOUNDRY_PASSWORD (and
+# optionally FACEFOUNDRY_USER, default "team") as an env var on the host to
+# require HTTP Basic auth. Unset -> no gate (local use is unaffected).
+_SITE_PASSWORD = os.environ.get("FACEFOUNDRY_PASSWORD", "")
+_SITE_USER = os.environ.get("FACEFOUNDRY_USER", "team")
+
+
+@app.middleware("http")
+async def _password_gate(request, call_next):
+    if _SITE_PASSWORD:
+        ok = False
+        header = request.headers.get("authorization", "")
+        if header.startswith("Basic "):
+            try:
+                user, _, pw = base64.b64decode(header[6:]).decode().partition(":")
+                ok = (secrets.compare_digest(user, _SITE_USER)
+                      and secrets.compare_digest(pw, _SITE_PASSWORD))
+            except Exception:
+                ok = False
+        if not ok:
+            return Response("Authentication required", status_code=401,
+                            headers={"WWW-Authenticate": 'Basic realm="FaceFoundry"'})
+    return await call_next(request)
 
 STYLES = [
     ("corporate", "Corporate", "Charcoal suit, neutral studio grey"),
