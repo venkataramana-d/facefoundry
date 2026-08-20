@@ -1,6 +1,7 @@
-# Setup — do this once (your part)
+# Setup — do this once
 
-I can't create the account for you (it needs your phone for verification), so these ~10 minutes are yours. Once done, I take over.
+Kaggle needs your phone number to unlock GPU access, so the account
+setup ~10 minutes are yours. Once done, the app takes it from there.
 
 ## Step 1 — Create a Kaggle account (~3 min)
 1. Go to **https://kaggle.com** → **Register** → sign up (email or Google).
@@ -18,18 +19,47 @@ I can't create the account for you (it needs your phone for verification), so th
    ```json
    {"username":"yourname","key":"xxxxxxxxxxxxxxxxxxxx"}
    ```
+   (Newer accounts hand out `KGAT_…` tokens — those work too; the app handles
+   both formats automatically.)
 
 ## Step 4 — Put the token where the tool can find it
-On Windows, copy `kaggle.json` to:
-```
-C:\Users\Ramana\.kaggle\kaggle.json
-```
-(Create the `.kaggle` folder if it doesn't exist.)
 
-## Step 5 — Tell me "done"
-Reply **done** and I'll run the Phase 0 validation script (`worker/phase0_validate.py`) to confirm we can drive Kaggle's free GPU automatically. If that passes, we build the rest.
+Pick **one** of these:
+
+**A) Drop `kaggle.json` in the standard location** (recommended for local use):
+
+- **Windows:** `%USERPROFILE%\.kaggle\kaggle.json`
+  (e.g. `C:\Users\<you>\.kaggle\kaggle.json` — create the `.kaggle` folder if
+  it doesn't exist)
+- **macOS / Linux:** `~/.kaggle/kaggle.json`
+
+**B) Use environment variables** (recommended for hosted / Docker setups):
+
+```bash
+export KAGGLE_USERNAME=yourname
+export KAGGLE_KEY=xxxxxxxxxxxxxxxxxxxx
+```
+
+The app checks `~/.kaggle/kaggle.json` first, then falls back to
+`KAGGLE_USERNAME` / `KAGGLE_KEY`. Deploying to Render / Railway / Fly?
+See [DEPLOY.md](DEPLOY.md).
+
+## Step 5 — Launch the app
+
+```bat
+run.bat
+```
+
+(or `pip install -r requirements.txt` then
+`python -m uvicorn app.server:app --port 8000`)
+
+Open <http://localhost:8000> and create a job. First run of the day on Kaggle
+spends ~10–15 min downloading models; later jobs in the same session are fast.
 
 ---
 
 ### What NOT to do
-- Don't share the contents of `kaggle.json` in chat — it's a secret key. Just place the file at the path above; the tool reads it locally.
+- Don't share the contents of `kaggle.json` in chat or commit it to git — it's
+  a secret key. It's already in `.gitignore`; leave it that way.
+- Don't skip phone verification. Kaggle refuses to allocate a GPU without it,
+  and the worker will fail before it starts generating.

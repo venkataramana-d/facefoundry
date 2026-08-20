@@ -16,11 +16,24 @@ This repo includes a `Dockerfile` and `render.yaml`.
 3. In the service **Environment**, set:
    - `KAGGLE_USERNAME` — your Kaggle username
    - `KAGGLE_KEY` — your Kaggle API key (from `kaggle.json`)
+   - `FACEFOUNDRY_PASSWORD` — (optional) site password to gate the UI
+   - `FACEFOUNDRY_USER` — (optional) username to pair with the password
+     (defaults to `team`)
 4. Deploy. The app comes up at `https://<name>.onrender.com`.
 
-The included **persistent disk** keeps `jobs/` + the SQLite DB across restarts.
+The blueprint uses Render's **free tier** — no card required, no persistent
+disk. That means:
 
-**Railway / Fly.io:** point them at the `Dockerfile` and set the same two env vars.
+- The service **sleeps after ~15 min of inactivity** and cold-starts on the next
+  request (~30 s).
+- `jobs/` and the SQLite DB **reset on every restart** — finished jobs vanish
+  from history. Download approved headshots before the service sleeps.
+- Health checks hit `/healthz`, which bypasses the password gate.
+
+For always-on with persistent history, upgrade the plan to `starter` and attach
+a disk mounted at `/app/jobs` in `render.yaml`.
+
+**Railway / Fly.io:** point them at the `Dockerfile` and set the same env vars.
 
 **A VM (DigitalOcean/EC2):**
 ```bash
@@ -34,6 +47,14 @@ python -m uvicorn app.server:app --host 0.0.0.0 --port 8000
 The app reads Kaggle creds from `~/.kaggle/kaggle.json` **or**, if that's absent,
 from `KAGGLE_USERNAME` / `KAGGLE_KEY` env vars (which it writes to `kaggle.json` on
 startup). Never commit `kaggle.json` — it's in `.gitignore`.
+
+New Kaggle `KGAT_` tokens are handled automatically and passed to the CLI via
+`KAGGLE_API_TOKEN`.
+
+## Password gate
+If `FACEFOUNDRY_PASSWORD` is set, every route except `/healthz` requires HTTP
+basic auth with that password and the `FACEFOUNDRY_USER` username. Leave the env
+var unset to run the app open (fine for `localhost`, not for a public URL).
 
 ## Not committed (see .gitignore)
 `jobs/` (employee photos, outputs, DB), `kaggle.json`, `*.db`, caches. Keep it that

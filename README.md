@@ -45,14 +45,29 @@ Your PC (control panel)                 Kaggle (free GPU)
 4. Watch live progress → **review** the results (approve/reject, re-roll
    failures) → **download** the approved set.
 
-> First run of a job spends ~15–20 min downloading the AI models on Kaggle, then
+> First run of a job spends ~10–15 min downloading the AI models on Kaggle, then
 > a few seconds per image. Later jobs in the same Kaggle session are faster.
+
+Want to host it instead of running locally? See [DEPLOY.md](DEPLOY.md).
 
 ## Command line (no UI)
 
 ```bash
 python app/kaggle_client.py --images test_images --style corporate --limit 3 --job-id smoketest
 ```
+
+## Upload modes
+
+The **New job** page has three ways to add photos:
+
+- **Folder** — pick a whole folder (uses `webkitdirectory`).
+- **Single / files** — pick one or more individual images.
+- **Camera** — on mobile, opens the front camera for a selfie.
+
+Photos are **downsized to 1600px and re-encoded to JPEG in your browser** before
+upload — this strips EXIF, keeps uploads small (20 MB → ~300 KB), and never
+touches the source files on disk. The server also enforces limits: **50 files
+per job, 25 MB per file, 400 MB total**.
 
 ## Styles & options
 
@@ -62,11 +77,15 @@ python app/kaggle_client.py --images test_images --style corporate --limit 3 --j
 
 **New-job options:**
 - **Resolution** — Standard 1K · High 2K · **Ultra 4K** (generated at 1024 then
-  high-quality upscaled).
+  upscaled with Real-ESRGAN 4x).
 - **Render speed** — Fast (~20 steps) · Balanced (~30) · Best (~45).
 - **Face enhancement (GFPGAN)** — optional, sharper eyes/skin. Fail-safe: if the
   optional deps don't install it's simply skipped, never breaking the job.
-- **Background** and **extra prompt details** — free-text prompt tweaks.
+- **Pure white background** — clean corporate look (post-processed on Kaggle).
+- **Multi-reference identity** — averages L2-normalized ArcFace embeddings
+  across every source photo. Recommended for 2+ photos.
+- **Background** and **extra prompt details** — free-text prompt tweaks
+  (sanitized server-side against nsfw/gore terms and prompt-splitting chars).
 - **Advanced** — identity strength, adapter scale, guidance, seed, limit.
 
 **Review screen:** before/after grid, per-image download, download approved / all,
@@ -97,19 +116,24 @@ one setup to every headshot and downloads a ZIP, with saveable presets.
 ## Layout
 
 ```
-headshot-studio/
+facefoundry/
 ├── run.bat                    # one-click launcher (Windows)
 ├── requirements.txt
+├── Dockerfile                 # runs as non-root ff user
+├── .dockerignore              # excludes jobs/, .kaggle, plans
+├── render.yaml                # Render blueprint (free tier)
 ├── SETUP.md                   # one-time Kaggle account setup
+├── DEPLOY.md                  # hosting on Render / Railway / VM
 ├── worker/
-│   ├── headshot_worker.py     # SDXL+InstantID pipeline (runs ON Kaggle)
-│   └── phase0_validate.py     # GPU automation proof
+│   └── headshot_worker.py     # SDXL+InstantID pipeline (runs ON Kaggle)
 ├── app/
 │   ├── kaggle_client.py       # orchestrator: upload → run → poll → download
 │   ├── server.py              # FastAPI web UI (new job / progress / review)
 │   ├── runner.py              # background job runner
 │   └── db.py                  # SQLite job history + review decisions
-├── test_images/               # 3 sample faces
+├── tests/
+│   └── test_safety.py         # 31 tests: safe_job_id/stem, kernel-state parser
+├── test_images/               # sample faces for smoke tests
 └── jobs/                       # per-job input/output + facefoundry.db (runtime)
 ```
 
@@ -123,6 +147,27 @@ headshot-studio/
 4. **Poll** — the control panel waits for completion.
 5. **Download** — headshots land in `jobs/<id>/output/headshots_out/`, with a
    structured `results.json` (per-image status/seed) and a `run.log`.
+
+## Safety hardening
+
+- Uploads capped at 50 files / 25 MB per file / 400 MB total, PIL-verified
+  after upload.
+- Every path route regex-validates `job_id` and image stem — no glob leaks.
+- Kaggle CLI calls have per-call timeouts (180 s / 900 s push) and retry 3x on
+  transient errors.
+- `POST /jobs/{id}/cancel` cancels a running kernel; deleting a job also cancels.
+- Thread-locked in-memory job table; `start_job` is idempotent.
+- Dockerfile runs as a non-root `ff` user.
+- `sanitize_user_text()` strips nsfw/gore terms and prompt-splitting characters
+  from user-supplied prompt text.
+
+## Hosting extras
+
+- **`/healthz`** — open endpoint (bypasses the password gate) so hosting
+  platforms can health-check without credentials.
+- **Password gate (optional)** — set `FACEFOUNDRY_PASSWORD` (and optionally
+  `FACEFOUNDRY_USER`, default `team`) as env vars on the host to gate every
+  route except `/healthz` behind HTTP basic auth.
 
 ## Troubleshooting
 
@@ -140,27 +185,8 @@ headshot-studio/
 |---|---|
 | Kaggle account + GPU (30 hr/wk) | $0 |
 | SDXL / InstantID / antelopev2 weights | $0 (open weights) |
+| Render free tier (optional hosting) | $0 |
 | **Total** | **$0** |
 
 Upgrade path if the free tier is ever too slow: swap the GPU backend (Replicate,
 RunPod, Colab Pro) — the UI and worker stay the same.
-
----
-
-## Appendix: Kaggle-notebook workflow (legacy)
-
-Before the control-panel app, the pipeline ran as a hand-driven Kaggle notebook.
-That workflow is still supported — see `PLAN.md`, `notebook.py`, and
-`urls_template.csv` in this repo.
-
-**Files:**
-
-| File | Purpose |
-|---|---|
-| `PLAN.md` | Detailed strategic plan — architecture, phased execution, risks, success criteria. |
-| `notebook.py` | Full processing pipeline. Paste into a Kaggle notebook. |
-| `urls_template.csv` | Example format for the input CSV. |
-
-**Run stages:** always sample 10 → sample 50 → full batch. Tune `IDENTITY_SCALE`,
-`ADAPTER_SCALE`, `NUM_STEPS`, `GUIDANCE`, and `STYLE_PRESET` in Cell 2 between
-stages. See `PLAN.md` for the full write-up.
