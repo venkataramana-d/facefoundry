@@ -1,6 +1,6 @@
 # FaceFoundry control panel — runs on YOUR PC (orchestrator + web UI).
 # The heavy ML libraries (torch, diffusers, insightface) run on Kaggle, not here.
-kaggle>=1.6.0
+kaggle==2.2.4                # pin to the version proven to work with KGAT tokens
 
 # Phase 3 web UI
 fastapi>=0.110

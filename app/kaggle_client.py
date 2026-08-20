@@ -102,7 +102,15 @@ def credentials() -> tuple[str, str]:
 
 def auth_env(key: str) -> dict:
     env = dict(os.environ)
-    env["KAGGLE_API_TOKEN"] = key  # new-style KGAT_* tokens need this for write ops
+    # A new-style KGAT_* token MUST be presented via KAGGLE_API_TOKEN. On a host
+    # we also set KAGGLE_USERNAME / KAGGLE_KEY (only to materialize kaggle.json).
+    # But the Kaggle CLI reads KAGGLE_KEY as a *legacy* API key and tries legacy
+    # auth with it - which a KGAT token fails ("Authentication required to call
+    # the Kaggle API"). So remove those env vars here; the CLI then authenticates
+    # via kaggle.json + KAGGLE_API_TOKEN (the path proven to work locally).
+    env.pop("KAGGLE_KEY", None)
+    env.pop("KAGGLE_USERNAME", None)
+    env["KAGGLE_API_TOKEN"] = key
     return env
 
 
@@ -149,13 +157,24 @@ def kaggle(args: list[str], env: dict, *, timeout: int | None = None,
 
 
 def owner_slug(username: str, env: dict) -> str:
-    """Kaggle normalizes the owner slug (Ramana-7981 -> ramana7981)."""
+    """Resolve the owner slug for the AUTHENTICATED account only.
+
+    Kaggle normalizes the slug (Ramana-7981 -> ramana7981). We derive it from the
+    credentials in kaggle.json and NEVER adopt a foreign owner: if the account's
+    kernel list happens to contain a kernel owned by someone else (e.g. a shared
+    or collaborated kernel), we ignore it. This guarantees every dataset/kernel is
+    created under YOUR account and blocks the tool from ever running as another
+    user's slug.
+    """
+    expected = username.lower().replace("-", "").replace("_", "")
     listing = kaggle(["kernels", "list", "--mine", "--csv"], env)
     for line in listing.stdout.splitlines()[1:]:
         ref = line.split(",", 1)[0].strip()
         if "/" in ref:
-            return ref.split("/", 1)[0]
-    return username.lower().replace("-", "").replace("_", "")
+            owner = ref.split("/", 1)[0]
+            if owner.lower() == expected:      # only accept OUR own, confirmed
+                return owner
+    return expected                             # fall back to our normalized slug
 
 
 # ----------------------------------------------------------------------------
