@@ -1,3 +1,13 @@
+---
+title: FaceFoundry
+emoji: 📸
+colorFrom: indigo
+colorTo: purple
+sdk: docker
+app_port: 8000
+pinned: false
+---
+
 # FaceFoundry
 
 Turn a folder of ordinary profile photos into professional headshots, in bulk,
