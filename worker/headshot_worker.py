@@ -118,7 +118,38 @@ def load_job() -> dict:
     cfg.setdefault("identity_scale", 0.8)
     cfg.setdefault("adapter_scale", 0.8)
     cfg.setdefault("seed_base", 42)
+    # Multi-reference identity averaging: when true, average the face embeddings
+    # from every source photo of the batch to build a more robust identity, then
+    # use that averaged embedding for every generation. Reduces "one bad photo =
+    # one bad output" drift for people who uploaded a small set of photos.
+    cfg.setdefault("multi_reference", True)
+    # Use Real-ESRGAN for hi-res upscale instead of Lanczos+UnsharpMask when
+    # output_size > img_size. Falls back to Lanczos if unavailable.
+    cfg.setdefault("realesrgan_upscale", True)
     return cfg
+
+
+# ----------------------------------------------------------------------------
+# Prompt hardening: strip user text before it joins the SDXL prompt so a photo
+# batch with a malicious "background" or "custom_prompt" can't inject nsfw etc.
+# ----------------------------------------------------------------------------
+_PROMPT_BLOCKLIST = (
+    "nsfw", "nude", "naked", "porn", "explicit", "sexy", "sexual",
+    "gore", "violence", "blood", "weapon", "gun",
+    "child", "kid", "minor", "loli", "shota",
+)
+
+
+def sanitize_user_text(s: str, max_len: int) -> str:
+    if not s:
+        return ""
+    low = s.lower()
+    if any(w in low for w in _PROMPT_BLOCKLIST):
+        return ""
+    # Keep it to letters/digits/space/punctuation — no prompt-splitting tokens.
+    keep = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 ,.-_+&"
+    cleaned = "".join(c for c in s if c in keep).strip()
+    return cleaned[:max_len]
 
 
 STYLE_PRESETS = {
@@ -311,11 +342,23 @@ def gather_sources(cfg) -> list:
     if cfg["input_mode"] == "urls":
         return _gather_from_urls(cfg)
 
-    # images mode: every image file in the attached dataset(s), excluding our own outputs
+    # images mode: only pull from the input dataset — the one that also carries
+    # job.json. Skips the model-cache dataset (which may contain PNG/JPG assets)
+    # and any other attached extras. Fallback to full scan only if job.json is
+    # not found (legacy behavior).
     sources = []
-    for p in sorted(INPUT_ROOT.glob("**/*")):
-        if p.suffix.lower() in IMAGE_EXTS and p.is_file():
-            sources.append((p.stem, str(p)))
+    job_json_matches = list(INPUT_ROOT.glob("**/job.json"))
+    if job_json_matches:
+        input_dataset_dir = job_json_matches[0].parent
+        print(f"[input] scoping to input dataset dir: {input_dataset_dir}")
+        for p in sorted(input_dataset_dir.rglob("*")):
+            if p.is_file() and p.suffix.lower() in IMAGE_EXTS and p.name != "job.json":
+                sources.append((p.stem, str(p)))
+    else:
+        # Legacy fallback — still exclude non-image files.
+        for p in sorted(INPUT_ROOT.glob("**/*")):
+            if p.suffix.lower() in IMAGE_EXTS and p.is_file():
+                sources.append((p.stem, str(p)))
     if cfg["limit"]:
         sources = sources[: int(cfg["limit"])]
     print(f"[input] {len(sources)} source images (mode=images)")
@@ -391,6 +434,45 @@ def _load_face_enhancer():
         return None
 
 
+def _load_realesrgan(target_size: int):
+    """Return an upsample(pil) -> pil callable, or None. `target_size` is the
+    LONGEST edge we want; the upscaler outputs its native 4x then we resize
+    down. Real-ESRGAN preserves detail much better than Lanczos at 2K/4K."""
+    try:
+        # realesrgan is already installed by _load_face_enhancer if GFPGAN ran;
+        # install here too so the upscaler works even when face_enhance=False.
+        sh("pip install -q realesrgan==0.3.0", check=False)
+        import numpy as np
+        from PIL import Image
+        from realesrgan import RealESRGANer
+        from basicsr.archs.rrdbnet_arch import RRDBNet
+        wpath = TMP / "RealESRGAN_x4plus.pth"
+        if not wpath.is_file():
+            sh("wget -q -O {} https://github.com/xinntao/Real-ESRGAN/releases/download/"
+               "v0.1.0/RealESRGAN_x4plus.pth".format(wpath), check=False)
+        model = RRDBNet(num_in_ch=3, num_out_ch=3, num_feat=64, num_block=23,
+                        num_grow_ch=32, scale=4)
+        up = RealESRGANer(scale=4, model_path=str(wpath), model=model,
+                          tile=384, tile_pad=10, pre_pad=0, half=True)
+
+        def apply(pil_img):
+            arr = np.array(pil_img.convert("RGB"))
+            out, _ = up.enhance(arr, outscale=4)
+            up_img = Image.fromarray(out)
+            w, h = up_img.size
+            m = max(w, h)
+            if m > target_size:
+                s = target_size / m
+                up_img = up_img.resize((int(w*s), int(h*s)), Image.LANCZOS)
+            return up_img
+
+        print(f"[upscale] Real-ESRGAN x4 loaded (target={target_size})", flush=True)
+        return apply
+    except Exception as e:
+        print(f"[upscale] Real-ESRGAN unavailable, falling back to Lanczos: {e}", flush=True)
+        return None
+
+
 def _load_bg_remover():
     """Return a rembg session, or None if unavailable. Fully guarded - a pure
     white background is a nice-to-have, never a reason to fail a job."""
@@ -413,17 +495,24 @@ def make_processor(cfg, pipe, face_app, draw_kps, device):
 
     preset = STYLE_PRESETS.get(cfg["style_preset"], STYLE_PRESETS["corporate"])
     prompt, negative = preset["prompt"], preset["negative"]
-    # Optional user tweaks (pure prompt text - cannot affect deps/CUDA).
-    if cfg.get("background"):
-        prompt = f"{prompt}, {cfg['background']} background"
-    if cfg.get("custom_prompt"):
-        prompt = f"{prompt}, {cfg['custom_prompt']}"
+    # Sanitize user prompt tweaks before they touch the SDXL prompt — blocks
+    # nsfw/violence injection via the "background" and "custom prompt" fields.
+    bg_txt = sanitize_user_text(cfg.get("background", ""), 80)
+    cust_txt = sanitize_user_text(cfg.get("custom_prompt", ""), 200)
+    if bg_txt:
+        prompt = f"{prompt}, {bg_txt} background"
+    if cust_txt:
+        prompt = f"{prompt}, {cust_txt}"
+    # Reinforce negative prompt with common artifact terms.
+    negative = negative + ", plastic skin, waxy skin, doll-like, uncanny, jpeg artifacts, mutated hands, extra fingers"
+
     gen_size = int(cfg["img_size"])          # SDXL renders best at its native 1024
     out_size = int(cfg.get("output_size", gen_size))
     enhancer = _load_face_enhancer() if cfg.get("face_enhance") else None
     bg_session = _load_bg_remover() if cfg.get("white_background") else None
+    upscaler = _load_realesrgan(out_size) if (out_size > gen_size and cfg.get("realesrgan_upscale", True)) else None
 
-    def process(src_path, dst_path, seed):
+    def process(src_path, dst_path, seed, avg_embedding=None):
         img = cv2.imread(src_path)
         if img is None:
             return False, "unreadable image"
@@ -433,17 +522,19 @@ def make_processor(cfg, pipe, face_app, draw_kps, device):
         face = sorted(faces, key=lambda x: (x["bbox"][2] - x["bbox"][0]) * (x["bbox"][3] - x["bbox"][1]),
                       reverse=True)[0]
         kps = draw_kps(Image.fromarray(cv2.cvtColor(img, cv2.COLOR_BGR2RGB)), face["kps"])
+        # Use the averaged batch embedding when caller supplied one — sharper
+        # identity across a batch of the same person's photos.
+        embedding = avg_embedding if avg_embedding is not None else face["embedding"]
         gen = torch.Generator(device=device).manual_seed(seed)
         result = pipe(
             prompt=prompt, negative_prompt=negative,
-            image_embeds=face["embedding"], image=kps,
+            image_embeds=embedding, image=kps,
             controlnet_conditioning_scale=cfg["identity_scale"],
             ip_adapter_scale=cfg["adapter_scale"],
             num_inference_steps=cfg["num_steps"], guidance_scale=cfg["guidance"],
             width=gen_size, height=gen_size, generator=gen,
         ).images[0]
-        # Optional GFPGAN face restoration (sharper eyes/skin). Fully guarded:
-        # any failure leaves the original result untouched.
+        # Optional GFPGAN face restoration (sharper eyes/skin). Fully guarded.
         if enhancer is not None:
             try:
                 bgr = cv2.cvtColor(np.array(result), cv2.COLOR_RGB2BGR)
@@ -453,8 +544,7 @@ def make_processor(cfg, pipe, face_app, draw_kps, device):
                     result = Image.fromarray(cv2.cvtColor(restored, cv2.COLOR_BGR2RGB))
             except Exception as e:
                 print(f"[enhance] restore failed for this image, using original: {e}", flush=True)
-        # Optional pure-white background (matches corporate reference look). Fully
-        # guarded: any failure keeps the generated background.
+        # Optional pure-white background. Fully guarded.
         if bg_session is not None:
             try:
                 from rembg import remove
@@ -462,16 +552,48 @@ def make_processor(cfg, pipe, face_app, draw_kps, device):
                                 bgcolor=(255, 255, 255, 255)).convert("RGB")
             except Exception as e:
                 print(f"[whitebg] failed for this image, keeping background: {e}", flush=True)
-        # Upscale to the requested output resolution (e.g. 4K). We generate at
-        # SDXL's native size for best facial detail, then high-quality Lanczos
-        # upscale + gentle unsharp so the delivered file is crisp at 2K/4K.
+        # Upscale to requested output resolution. Real-ESRGAN preserves detail
+        # far better than plain Lanczos at 2K/4K; falls back to Lanczos+unsharp
+        # if the upscaler wasn't loadable.
         if out_size > gen_size:
-            result = result.resize((out_size, out_size), Image.LANCZOS)
-            result = result.filter(ImageFilter.UnsharpMask(radius=2.2, percent=70, threshold=2))
+            if upscaler is not None:
+                try:
+                    result = upscaler(result)
+                except Exception as e:
+                    print(f"[upscale] Real-ESRGAN failed, using Lanczos: {e}", flush=True)
+                    result = result.resize((out_size, out_size), Image.LANCZOS)
+                    result = result.filter(ImageFilter.UnsharpMask(radius=2.2, percent=70, threshold=2))
+            else:
+                result = result.resize((out_size, out_size), Image.LANCZOS)
+                result = result.filter(ImageFilter.UnsharpMask(radius=2.2, percent=70, threshold=2))
         result.save(dst_path, "JPEG", quality=95, subsampling=0)
         return True, None
 
-    return process
+    def build_avg_embedding(source_paths):
+        """Return the mean face embedding across a list of source images. Skips
+        images where no face is detected. Returns None on total failure."""
+        embs = []
+        for p in source_paths:
+            im = cv2.imread(p)
+            if im is None:
+                continue
+            fs = face_app.get(im)
+            if not fs:
+                continue
+            fs.sort(key=lambda x: (x["bbox"][2]-x["bbox"][0])*(x["bbox"][3]-x["bbox"][1]),
+                    reverse=True)
+            embs.append(fs[0]["embedding"])
+        if not embs:
+            return None
+        avg = np.mean(np.stack(embs, axis=0), axis=0)
+        # ArcFace embeddings are typically L2-normalized; renormalize after mean.
+        norm = np.linalg.norm(avg)
+        if norm > 0:
+            avg = avg / norm
+        print(f"[identity] averaged embedding across {len(embs)} photos", flush=True)
+        return avg
+
+    return process, build_avg_embedding
 
 
 # ----------------------------------------------------------------------------
@@ -487,9 +609,15 @@ def _run(t_start):
     use_model_cache()   # skip downloads if a models dataset is attached (safe no-op)
     fetch_models()
     pipe, face_app, draw_kps, device = build_pipeline(cfg)
-    process = make_processor(cfg, pipe, face_app, draw_kps, device)
+    process, build_avg_embedding = make_processor(cfg, pipe, face_app, draw_kps, device)
 
     sources = gather_sources(cfg)
+    # Build a shared "averaged" identity embedding across all input photos when
+    # multi-reference is on and there are at least 2 photos. This makes every
+    # output share one strong identity instead of drifting per-photo.
+    avg_embedding = None
+    if cfg.get("multi_reference") and len(sources) >= 2:
+        avg_embedding = build_avg_embedding([p for _, p in sources])
     results = []
     done = 0
     for i, (stem, src_path) in enumerate(sources, 1):
@@ -500,7 +628,7 @@ def _run(t_start):
             done += 1
             continue
         try:
-            ok, err = process(src_path, str(dst_path), seed)
+            ok, err = process(src_path, str(dst_path), seed, avg_embedding=avg_embedding)
             if ok:
                 results.append({"stem": stem, "status": "ok", "output": dst_path.name, "seed": seed})
                 done += 1

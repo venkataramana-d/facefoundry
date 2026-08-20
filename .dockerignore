@@ -1,10 +1,34 @@
-jobs/
-*.db
-__pycache__/
-*.pyc
-.venv/
-venv/
-phase0_output/
-*.log
-.git/
+# Never bake local state / secrets / planning noise into the image.
+.git
 .gitignore
+.kaggle
+kaggle.json
+*.pyc
+__pycache__
+.venv
+venv
+env
+.env
+.env.*
+node_modules
+
+# Local runtime data
+jobs/
+test_images/
+urls_template.csv
+
+# Planning / manager reports — noise for a runtime image
+PLAN.md
+TOOL_BUILD_PLAN.md
+MANAGER_REPORT.md
+PROGRESS_LOG.md
+IMAGE_STUDIO_PLAN.md
+DEPLOY.md
+SETUP.md
+
+# Editors / OS
+.vscode
+.idea
+*.swp
+.DS_Store
+Thumbs.db

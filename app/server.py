@@ -22,18 +22,45 @@ import base64
 import io
 import json
 import os
+import re
 import secrets
 import time
 import zipfile
 from html import escape
 from pathlib import Path
 
-from fastapi import FastAPI, File, Form, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import (FileResponse, HTMLResponse, JSONResponse,
                                RedirectResponse, Response, StreamingResponse)
 
 from . import db, runner
-from .kaggle_client import JOBS_DIR, slugify_job_id
+from .kaggle_client import JOBS_DIR, cancel_kernel, slugify_job_id
+
+try:
+    from PIL import Image, UnidentifiedImageError
+except ImportError:  # Pillow is optional at import time; upload path re-checks
+    Image = None
+    UnidentifiedImageError = Exception
+
+# Upload safety limits (per POST to /jobs). Tuned for phone photos + typical batch.
+MAX_FILE_BYTES = 25 * 1024 * 1024       # 25 MB per photo
+MAX_FILES = 50                          # hard cap per job
+MAX_TOTAL_BYTES = 400 * 1024 * 1024     # 400 MB total per job
+
+_SAFE_ID_RE = re.compile(r"^[a-z0-9][a-z0-9\-_]{0,63}$")
+_SAFE_STEM_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._\-]{0,127}$")
+
+
+def _safe_job_id(job_id: str) -> str:
+    if not _SAFE_ID_RE.match(job_id or ""):
+        raise HTTPException(status_code=400, detail="invalid job id")
+    return job_id
+
+
+def _safe_stem(stem: str) -> str:
+    if not _SAFE_STEM_RE.match(stem or ""):
+        raise HTTPException(status_code=400, detail="invalid file id")
+    return stem
 
 app = FastAPI(title="FaceFoundry")
 
@@ -156,19 +183,31 @@ ICON = {
 # Helpers to locate a job's files on disk
 # ============================================================================
 def _input_path(job_id: str, stem: str) -> Path | None:
+    _safe_job_id(job_id); _safe_stem(stem)
     d = JOBS_DIR / job_id / "input"
-    if d.is_dir():
-        for p in d.iterdir():
-            if p.stem == stem and p.suffix.lower() in IMAGE_EXTS:
-                return p
+    if not d.is_dir():
+        return None
+    for ext in IMAGE_EXTS:
+        p = d / f"{stem}{ext}"
+        if p.is_file():
+            return p
     return None
 
 
 def _output_path(job_id: str, stem: str) -> Path | None:
-    d = JOBS_DIR / job_id / "output"
+    _safe_job_id(job_id); _safe_stem(stem)
+    d = JOBS_DIR / job_id / "output" / "headshots_out"
     if d.is_dir():
-        for p in d.rglob(f"{stem}.jpg"):  # worker writes headshots_out/{stem}.jpg
+        p = d / f"{stem}.jpg"
+        if p.is_file():
             return p
+    # Legacy fallback: some worker versions wrote elsewhere under output/.
+    d2 = JOBS_DIR / job_id / "output"
+    if d2.is_dir():
+        target = f"{stem}.jpg"
+        for p in d2.rglob("*.jpg"):
+            if p.name == target:
+                return p
     return None
 
 
@@ -510,23 +549,30 @@ def home() -> HTMLResponse:
       <div class=split>
         <div class=panel>
           <h2>1 · Source photos</h2>
-          <div class=chips id=upmode style="margin-bottom:12px">
-            <span class="chip on" data-mode="folder">Whole folder</span>
-            <span class=chip data-mode="single">Single / few images</span>
+          <div class=upmode style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap">
+            <button type=button class="btn sm on" id=mode-folder onclick="setMode('folder')">Folder</button>
+            <button type=button class="btn sm" id=mode-files onclick="setMode('files')">Single / files</button>
+            <button type=button class="btn sm" id=mode-camera onclick="setMode('camera')">Camera</button>
           </div>
           <div class=dropzone id=dz>
-            <input id=images type=file name=images accept="image/*" multiple required webkitdirectory
-                   onchange="cnt(this)">
+            <input id=images-folder type=file accept="image/*" multiple webkitdirectory
+                   onchange="onPick(event)">
+            <input id=images-files type=file accept="image/*" multiple
+                   onchange="onPick(event)" style="display:none">
+            <input id=images-camera type=file accept="image/*" capture="user"
+                   onchange="onPick(event)" style="display:none">
             <div>
               <div class=dz-ic>{ICON['folder']}</div>
-              <div class=dz-t id=dztitle>Drop a folder here, or click to browse</div>
-              <div class=dz-s>Clear, front-facing faces work best · JPG / PNG</div>
+              <div class=dz-t id=dz-title>Drop a folder here, or click to browse</div>
+              <div class=dz-s id=dz-sub>Clear, front-facing faces work best · JPG / PNG</div>
               <div class=dz-count id=dzc></div>
             </div>
           </div>
+          <div id=thumbs class=thumbs style="display:none;margin-top:12px;grid-template-columns:repeat(auto-fill,minmax(84px,1fr));gap:8px"></div>
+          <div id=upstats class=hint style="margin-top:8px;display:none"></div>
           <p class=hint style="margin:14px 0 0">Runs on a free cloud GPU. First job of a session
             spends ~10-15 min downloading the AI models, then a few seconds per photo; later jobs are quicker.
-            Upload is instant - the wait is the GPU rendering.</p>
+            Photos are resized to 1600px and EXIF-stripped in your browser before upload — private and fast.</p>
         </div>
 
         <div class="stack">
@@ -545,6 +591,8 @@ def home() -> HTMLResponse:
               <span class=track></span><span>Face enhancement (GFPGAN) — sharper eyes &amp; skin</span></label>
             <label class=switch style="margin-top:12px"><input type=checkbox name=white_background value=1>
               <span class=track></span><span>Pure white background — clean corporate look</span></label>
+            <label class=switch style="margin-top:12px"><input type=checkbox name=multi_reference value=1 checked>
+              <span class=track></span><span>Multi-reference identity — average faces across all your photos (recommended for 2+ photos)</span></label>
             <label style="margin-top:14px">Background <span class=faint>(optional)</span></label>
             <input name=background placeholder="e.g. soft teal, warm grey, office bokeh">
             <label style="margin-top:14px">Extra prompt details <span class=faint>(optional)</span></label>
@@ -566,27 +614,134 @@ def home() -> HTMLResponse:
     </form>
     <script>
       const dz = document.getElementById('dz');
-      function cnt(inp) {{
-        const n = inp.files.length;
-        document.getElementById('dzc').textContent = n ? n + ' image' + (n>1?'s':'') + ' selected' : '';
-      }}
-      ['dragenter','dragover'].forEach(e => dz.addEventListener(e, ev => {{ev.preventDefault(); dz.classList.add('hot');}}));
-      ['dragleave','drop'].forEach(e => dz.addEventListener(e, ev => {{ev.preventDefault(); dz.classList.remove('hot');}}));
-      // Folder vs single/few images toggle
-      const upmode = document.getElementById('upmode');
-      upmode.addEventListener('click', e => {{
-        if (!e.target.dataset.mode) return;
-        [].forEach.call(upmode.children, c => c.classList.remove('on'));
-        e.target.classList.add('on');
-        const inp = document.getElementById('images');
-        if (e.target.dataset.mode === 'single') {{
-          inp.removeAttribute('webkitdirectory');
-          document.getElementById('dztitle').textContent = 'Choose one or more images, or drop them here';
-        }} else {{
-          inp.setAttribute('webkitdirectory', '');
-          document.getElementById('dztitle').textContent = 'Drop a folder here, or click to browse';
+      const inpFolder = document.getElementById('images-folder');
+      const inpFiles = document.getElementById('images-files');
+      const inpCamera = document.getElementById('images-camera');
+      const bFolder = document.getElementById('mode-folder');
+      const bFiles = document.getElementById('mode-files');
+      const bCamera = document.getElementById('mode-camera');
+      const dzTitle = document.getElementById('dz-title');
+      const dzSub = document.getElementById('dz-sub');
+      const dzc = document.getElementById('dzc');
+      const thumbs = document.getElementById('thumbs');
+      const upstats = document.getElementById('upstats');
+      const form = document.getElementById('jobform');
+      const MAX_FILES = {MAX_FILES};
+      const MAX_BYTES = {MAX_FILE_BYTES};
+      const RESIZE_MAX = 1600;   // longest-edge before upload
+      const JPEG_Q = 0.9;
+
+      // Stateful list of selected files across multiple pickers.
+      let selected = [];  // Array<File>
+
+      function fmt(n) {{ return n<1024?n+' B':n<1048576?(n/1024).toFixed(1)+' KB':(n/1048576).toFixed(1)+' MB'; }}
+
+      function renderThumbs() {{
+        thumbs.innerHTML = '';
+        if (!selected.length) {{
+          thumbs.style.display = 'none'; upstats.style.display = 'none'; dzc.textContent = '';
+          return;
         }}
-        inp.value = ''; document.getElementById('dzc').textContent = '';
+        thumbs.style.display = 'grid';
+        let total = 0;
+        selected.forEach((f, i) => {{
+          total += f.size;
+          const url = URL.createObjectURL(f);
+          const cell = document.createElement('div');
+          cell.style.cssText = 'position:relative;aspect-ratio:1/1;border-radius:8px;overflow:hidden;background:#f4f4f5';
+          cell.innerHTML = `<img src="${{url}}" style="width:100%;height:100%;object-fit:cover" onload="URL.revokeObjectURL(this.src)">
+            <button type=button aria-label="remove" style="position:absolute;top:2px;right:2px;width:22px;height:22px;border:0;border-radius:50%;background:rgba(0,0,0,.6);color:#fff;cursor:pointer;line-height:1;font-size:14px" onclick="removeAt(${{i}})">×</button>`;
+          thumbs.appendChild(cell);
+        }});
+        dzc.textContent = selected.length + ' image' + (selected.length>1?'s':'') + ' ready';
+        upstats.style.display = 'block';
+        upstats.textContent = `Total ${{fmt(total)}} · will be resized to ${{RESIZE_MAX}}px & EXIF-stripped in your browser before upload`;
+      }}
+
+      window.removeAt = function(i) {{ selected.splice(i,1); renderThumbs(); }};
+
+      function isImage(f) {{ return f && (f.type||'').startsWith('image/'); }}
+
+      function addFiles(list) {{
+        for (const f of list) {{
+          if (!isImage(f)) continue;
+          if (f.size > MAX_BYTES) continue;
+          if (selected.length >= MAX_FILES) break;
+          selected.push(f);
+        }}
+        renderThumbs();
+      }}
+
+      function onPick(ev) {{ addFiles(ev.target.files || []); ev.target.value = ''; }}
+
+      function setMode(m) {{
+        bFolder.classList.toggle('on', m==='folder');
+        bFiles.classList.toggle('on', m==='files');
+        bCamera.classList.toggle('on', m==='camera');
+        inpFolder.style.display = m==='folder' ? '' : 'none';
+        inpFiles.style.display = m==='files' ? '' : 'none';
+        inpCamera.style.display = m==='camera' ? '' : 'none';
+        dzTitle.textContent = m==='folder' ? 'Drop a folder here, or click to browse'
+                            : m==='camera' ? 'Take a selfie (mobile camera)'
+                            : 'Drop one or more photos here, or click to browse';
+        dzSub.textContent = m==='folder' ? 'Clear, front-facing faces work best · JPG / PNG'
+                          : m==='camera' ? 'Uses your device camera · one shot at a time'
+                          : 'Single file or multi-select · JPG / PNG';
+      }}
+
+      ['dragenter','dragover'].forEach(e => dz.addEventListener(e, ev => {{
+        ev.preventDefault(); dz.classList.add('hot');
+      }}));
+      ['dragleave','drop'].forEach(e => dz.addEventListener(e, ev => {{
+        ev.preventDefault(); dz.classList.remove('hot');
+      }}));
+      dz.addEventListener('drop', ev => addFiles(ev.dataTransfer?.files || []));
+
+      // Client-side downsize + EXIF strip. Canvas-based, no external deps:
+      // decoding through <img> discards EXIF, and re-encoding to JPEG produces
+      // a clean file. Keeps portrait-camera photos small (20 MB -> ~300 KB).
+      async function shrinkOne(file) {{
+        if (file.size < 300*1024) return file;  // small enough already, no gain
+        const url = URL.createObjectURL(file);
+        try {{
+          const img = await new Promise((res, rej) => {{
+            const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = url;
+          }});
+          const {{width:w, height:h}} = img;
+          const scale = Math.min(1, RESIZE_MAX / Math.max(w, h));
+          const nw = Math.round(w*scale), nh = Math.round(h*scale);
+          const cvs = document.createElement('canvas');
+          cvs.width = nw; cvs.height = nh;
+          const ctx = cvs.getContext('2d');
+          ctx.imageSmoothingQuality = 'high';
+          ctx.drawImage(img, 0, 0, nw, nh);
+          const blob = await new Promise(r => cvs.toBlob(r, 'image/jpeg', JPEG_Q));
+          if (!blob || blob.size >= file.size) return file;  // never make it worse
+          const base = (file.name || 'photo').replace(/\\.[^.]+$/, '') || 'photo';
+          return new File([blob], base + '.jpg', {{type: 'image/jpeg'}});
+        }} catch (e) {{ return file; }}
+        finally {{ URL.revokeObjectURL(url); }}
+      }}
+
+      form.addEventListener('submit', async ev => {{
+        if (!selected.length) {{ ev.preventDefault(); alert('Pick at least one photo.'); return; }}
+        ev.preventDefault();
+        const btn = form.querySelector('button[type=submit]');
+        if (btn) {{ btn.disabled = true; btn.textContent = 'Preparing photos…'; }}
+        upstats.textContent = 'Shrinking & stripping EXIF locally… (0 / ' + selected.length + ')';
+        const shrunk = [];
+        for (let i=0; i<selected.length; i++) {{
+          shrunk.push(await shrinkOne(selected[i]));
+          upstats.textContent = 'Shrinking & stripping EXIF locally… (' + (i+1) + ' / ' + selected.length + ')';
+        }}
+        const fd = new FormData(form);
+        fd.delete('images');
+        shrunk.forEach(f => fd.append('images', f, f.name));
+        if (btn) btn.textContent = 'Uploading…';
+        const r = await fetch(form.action, {{method: 'POST', body: fd, redirect: 'follow'}});
+        if (r.redirected) window.location = r.url;
+        else if (r.ok) window.location = '/';
+        else {{ if (btn) {{ btn.disabled = false; btn.textContent = 'Generate'; }} alert('Upload failed: ' + r.status); }}
       }});
     </script>"""
     return HTMLResponse(_shell("FaceFoundry", "new", topbar, content))
@@ -603,6 +758,7 @@ async def create_job(
     speed: str = Form("balanced"),
     face_enhance: str = Form(""),
     white_background: str = Form(""),
+    multi_reference: str = Form("1"),
     background: str = Form(""),
     custom_prompt: str = Form(""),
     limit: str = Form(""),
@@ -613,15 +769,37 @@ async def create_job(
     seed: int = Form(42),
 ) -> RedirectResponse:
     job_id = slugify_job_id(job_name or f"job{int(time.time())}")
+    _safe_job_id(job_id)
+
+    incoming = images or []
+    if len(incoming) > MAX_FILES:
+        return RedirectResponse(f"/?error=too_many&max={MAX_FILES}", status_code=303)
 
     up_dir = JOBS_DIR / job_id / "uploads"
     up_dir.mkdir(parents=True, exist_ok=True)
     saved = 0
-    for f in images or []:
+    total_bytes = 0
+    for f in incoming:
         name = Path(f.filename or "").name
-        if name and Path(name).suffix.lower() in IMAGE_EXTS:
-            (up_dir / name).write_bytes(await f.read())
-            saved += 1
+        if not name or Path(name).suffix.lower() not in IMAGE_EXTS:
+            continue
+        data = await f.read()
+        if len(data) == 0 or len(data) > MAX_FILE_BYTES:
+            continue
+        total_bytes += len(data)
+        if total_bytes > MAX_TOTAL_BYTES:
+            return RedirectResponse("/?error=too_large", status_code=303)
+        # Verify it's a real image, not just a lucky extension.
+        if Image is not None:
+            try:
+                Image.open(io.BytesIO(data)).verify()
+            except (UnidentifiedImageError, Exception):
+                continue
+        # Force the stem into our safe charset so downstream lookups can't glob-leak.
+        stem = re.sub(r"[^A-Za-z0-9._\-]", "_", Path(name).stem)[:120] or f"img{saved}"
+        ext = Path(name).suffix.lower()
+        (up_dir / f"{stem}{ext}").write_bytes(data)
+        saved += 1
     if saved == 0:
         return RedirectResponse("/?error=no_images", status_code=303)
 
@@ -633,6 +811,7 @@ async def create_job(
         "img_size": 1024, "output_size": out_size, "num_steps": steps, "guidance": guidance,
         "identity_scale": identity, "adapter_scale": adapter, "seed_base": seed,
         "face_enhance": bool(face_enhance), "white_background": bool(white_background),
+        "multi_reference": bool(multi_reference),
         "background": background.strip()[:80], "custom_prompt": custom_prompt.strip()[:200],
     }
     db.create_job(job_id, style, cfg)
@@ -1254,13 +1433,41 @@ def job_file(job_id: str, name: str):
 # ============================================================================
 @app.post("/jobs/{job_id}/delete")
 def delete_job_route(job_id: str) -> RedirectResponse:
-    """Delete a job: its DB rows and its on-disk folder (uploads/input/output)."""
+    """Delete a job: its DB rows and its on-disk folder (uploads/input/output).
+    Also asks Kaggle to cancel the kernel if the job is still running so we
+    don't leave a phantom render burning the free GPU quota."""
+    _safe_job_id(job_id)
+    j = db.get_job(job_id)
+    if j and j["status"] in ("running", "queued"):
+        try:
+            cancel_kernel(job_id)
+        except Exception:
+            pass  # best-effort; local delete must still proceed
     db.delete_job(job_id)
     job_dir = JOBS_DIR / job_id
     if job_dir.is_dir():
         import shutil
         shutil.rmtree(job_dir, ignore_errors=True)
     return RedirectResponse("/", status_code=303)
+
+
+@app.post("/jobs/{job_id}/cancel")
+def cancel_job_route(job_id: str) -> JSONResponse:
+    """Ask Kaggle to stop the kernel and mark the job cancelled. Local files stay."""
+    _safe_job_id(job_id)
+    j = db.get_job(job_id)
+    if not j:
+        return JSONResponse({"error": "not found"}, status_code=404)
+    if j["status"] not in ("running", "queued"):
+        return JSONResponse({"ok": True, "already": j["status"]})
+    ok = False
+    try:
+        ok = cancel_kernel(job_id)
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=502)
+    db.update_job(job_id, status="failed", stage="cancelled",
+                  message="Cancelled by user", error="cancelled")
+    return JSONResponse({"ok": True, "kaggle_ok": ok})
 
 
 @app.post("/jobs/{job_id}/review")

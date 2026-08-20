@@ -13,7 +13,10 @@ from . import db
 from .kaggle_client import JobError, resume_job, run_job
 
 # job_id -> Thread, so we can tell if a job is still actively running.
+# Guarded by _threads_lock because HTTP handlers and background threads both
+# read/write this dict — an unlocked dict race can leak zombie references.
 _threads: dict[str, threading.Thread] = {}
+_threads_lock = threading.Lock()
 
 
 # Map each orchestrator stage to a normalized step index for the UI stepper.
@@ -78,20 +81,27 @@ def _resume(job_id: str) -> None:
 
 
 def start_job(job_id: str, images_dir: Path, cfg: dict) -> None:
-    t = threading.Thread(target=_run, args=(job_id, images_dir, cfg), daemon=True)
-    _threads[job_id] = t
+    with _threads_lock:
+        existing = _threads.get(job_id)
+        if existing and existing.is_alive():
+            return  # idempotent: same job double-clicked won't spawn twice
+        t = threading.Thread(target=_run, args=(job_id, images_dir, cfg), daemon=True)
+        _threads[job_id] = t
     t.start()
 
 
 def resume_running(job_id: str) -> None:
     """Reconnect to a job whose thread was lost (e.g. panel restart)."""
-    if is_running(job_id):
-        return
-    t = threading.Thread(target=_resume, args=(job_id,), daemon=True)
-    _threads[job_id] = t
+    with _threads_lock:
+        existing = _threads.get(job_id)
+        if existing and existing.is_alive():
+            return
+        t = threading.Thread(target=_resume, args=(job_id,), daemon=True)
+        _threads[job_id] = t
     t.start()
 
 
 def is_running(job_id: str) -> bool:
-    t = _threads.get(job_id)
+    with _threads_lock:
+        t = _threads.get(job_id)
     return bool(t and t.is_alive())

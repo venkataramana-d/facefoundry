@@ -6,3 +6,4 @@ kaggle>=1.6.0
 fastapi>=0.110
 uvicorn>=0.29
 python-multipart>=0.0.9   # required by FastAPI for file uploads
+Pillow>=10.0              # server-side upload validation (verify + MIME sniff)
