@@ -1,159 +1,166 @@
-# Bulk Profile Pic → Professional Headshot
-
-Free, GPU-powered pipeline that converts low-quality profile pics into professional headshots using SDXL + InstantID for face preservation. Runs entirely on Kaggle's free T4 GPU. Zero API cost.
-
-**Built for:** internal batch processing of ~1,500 images.
-**Time:** ~6–8 hours for 1,500 images on a single Kaggle session.
-**Cost:** $0.
-
+---
+title: FaceFoundry
+emoji: 📸
+colorFrom: indigo
+colorTo: purple
+sdk: docker
+app_port: 8000
+pinned: false
 ---
 
-## What's in this folder
+# FaceFoundry
 
-| File | Purpose |
-|---|---|
-| `PLAN.md` | **Detailed strategic plan** — architecture, phased execution, risks, success criteria. Read this first. |
-| `notebook.py` | The full processing pipeline. Paste into a Kaggle notebook. |
-| `urls_template.csv` | Example format for your input CSV. |
-| `README.md` | This file — quick reference for setup + tuning. |
+Turn a folder of ordinary profile photos into professional headshots, in bulk,
+for **$0** — using free Kaggle GPUs driven automatically from your PC.
 
----
+The heavy AI (SDXL + InstantID) runs on Kaggle's free Tesla P100. Your PC only
+runs a small local control panel that uploads images, launches the GPU worker,
+polls it, and pulls the finished headshots back. No always-on server, no GPU
+bill.
 
-## One-time setup (~15 minutes)
-
-### 1. Create a Kaggle account
-- Go to [kaggle.com](https://kaggle.com) → Sign up (free).
-- **Verify your phone number** in Account settings. This is required to unlock GPU access — Kaggle blocks GPU for unverified accounts.
-
-### 2. Prepare your URLs CSV
-- Make a CSV with one column named `url`, one image URL per row. See `urls_template.csv` for the format.
-- URLs must be publicly reachable (Kaggle's servers download them). Google Drive share links, S3 public URLs, CDN URLs all work.
-
-### 3. Upload as a Kaggle Dataset
-- Kaggle sidebar → **Create → New Dataset** → upload your CSV → set visibility to **Private** → publish.
-- Note the dataset path (e.g. `/kaggle/input/my-headshot-urls/urls.csv`).
-
-### 4. Create a new Notebook
-- **Create → New Notebook**.
-- Right sidebar → **Settings**:
-  - Accelerator: **GPU T4 x2**
-  - Internet: **ON**
-  - Persistence: **Files only**
-- Right sidebar → **Add Data** → attach the dataset you uploaded.
-
-### 5. Paste in the code
-- Open `notebook.py` from this folder.
-- Split it into cells at the `# %% CELL N:` markers (or paste it all as one cell — works either way).
-- Update `INPUT_CSV_PATH` in Cell 2 to match your dataset path.
-
----
-
-## Running the pipeline
-
-Always run in three stages. Do NOT jump straight to the full 1,500.
-
-### Stage 1: Sample of 10 (~5 minutes)
-```python
-SAMPLE_MODE = "sample_10"
 ```
-Runs cells 1–10 top to bottom. Cell 10 shows a side-by-side preview grid. **Check every one.** If faces look wrong, tune before scaling up:
-
-- Faces don't match source → raise `IDENTITY_SCALE` (try 0.9)
-- Faces look plasticky or over-processed → lower `IDENTITY_SCALE` (try 0.7)
-- Clothing/background wrong → tweak the prompt in `STYLE_PRESETS`
-- Wrong style → switch `STYLE_PRESET` to another preset
-
-### Stage 2: Sample of 50 (~20 minutes)
-```python
-SAMPLE_MODE = "sample_50"
+Your PC (control panel)                 Kaggle (free GPU)
+┌───────────────────────┐   upload    ┌────────────────────────┐
+│ web UI / orchestrator │ ──────────► │ private dataset        │
+│  app/server.py        │   launch    │ headshot_worker.py     │
+│  app/kaggle_client.py │ ──────────► │  SDXL + InstantID       │
+│                       │ ◄────────── │  → headshots + results  │
+└───────────────────────┘  download   └────────────────────────┘
 ```
-Catches edge cases the 10-sample missed: glasses, dark backgrounds, side profiles, low-res sources, group photos. Fix any issues before the full pass.
 
-### Stage 3: Full batch (~6–8 hours)
-```python
-SAMPLE_MODE = "full"
+## Quick start
+
+1. One-time Kaggle setup — see [SETUP.md](SETUP.md) (account, phone-verify for
+   GPU, API token at `~/.kaggle/kaggle.json`).
+2. Launch the control panel:
+
+   ```bat
+   run.bat
+   ```
+
+   (or manually: `pip install -r requirements.txt` then
+   `python -m uvicorn app.server:app --port 8000`)
+3. Open <http://localhost:8000>, click **New job**, pick a folder of photos and
+   a style, and hit **Generate**.
+4. Watch live progress → **review** the results (approve/reject, re-roll
+   failures) → **download** the approved set.
+
+> First run of a job spends ~15–20 min downloading the AI models on Kaggle, then
+> a few seconds per image. Later jobs in the same Kaggle session are faster.
+
+## Command line (no UI)
+
+```bash
+python app/kaggle_client.py --images test_images --style corporate --limit 3 --job-id smoketest
 ```
-Set this, then run **Run All** from the top menu. Kaggle sessions cap at 12 hours; 1,500 images fits comfortably. The batch loop is resumable — if the session dies at image 900, restart the notebook and it skips already-done images.
 
-When done, Cell 9 creates a ZIP in `/kaggle/working/`. Right sidebar → **Output** → right-click the ZIP → **Download**.
+## Styles & options
 
----
+**8 style presets:** `corporate` · `modern_tech` · `warm_friendly` ·
+`formal_executive` · `linkedin_classic` · `startup_casual` · `healthcare` ·
+`academic` (edit `STYLE_PRESETS` in `worker/headshot_worker.py` to add your own).
 
-## Style presets
+**New-job options:**
+- **Resolution** — Standard 1K · High 2K · **Ultra 4K** (generated at 1024 then
+  high-quality upscaled).
+- **Render speed** — Fast (~20 steps) · Balanced (~30) · Best (~45).
+- **Face enhancement (GFPGAN)** — optional, sharper eyes/skin. Fail-safe: if the
+  optional deps don't install it's simply skipped, never breaking the job.
+- **Background** and **extra prompt details** — free-text prompt tweaks.
+- **Advanced** — identity strength, adapter scale, guidance, seed, limit.
 
-Set `STYLE_PRESET` in Cell 2 to one of these:
+**Review screen:** before/after grid, per-image download, download approved / all,
+**Approve all / Reject all**, keyboard review (**A** keep · **R** reject · **J/K**
+move), **re-roll** failures, and **re-run** the same faces in a different style.
+Live runs show a progress ring + stepper and fire a browser notification when done.
 
-| Preset | Look |
-|---|---|
-| `corporate` | Neutral gray studio background, charcoal suit, crisp white shirt, soft studio light. **Safest default for a mixed batch.** |
-| `modern_tech` | Soft office bokeh, smart casual (sweater or open-collar), natural window light, friendly. |
-| `warm_friendly` | Cream/beige background, cozy knit, golden hour lighting, subtle smile. |
-| `formal_executive` | Deep navy background, tailored dark suit + tie, rembrandt lighting, authoritative. |
+## Faster runs (model cache)
 
-You can also edit the `prompt` and `negative` strings inside `STYLE_PRESETS` directly if you want a custom look.
+Each Kaggle run re-downloads ~10 GB of models (~10–15 min). Build the cache **once**:
 
----
+```bash
+python app/kaggle_client.py --build-cache
+```
 
-## Tuning knobs (Cell 2)
+This runs a one-off Kaggle kernel that downloads all models and publishes them as a
+private **`facefoundry-models`** dataset. After that, every job auto-attaches it and the
+worker loads models from it instead of downloading — cutting most of the setup wait.
 
-| Setting | Range | Effect |
-|---|---|---|
-| `IDENTITY_SCALE` | 0.6–1.0 | How strongly to preserve the source face. Higher = more face fidelity, less style freedom. |
-| `ADAPTER_SCALE` | 0.6–1.0 | How much of the source face's appearance (skin, features) carries through. Usually match `IDENTITY_SCALE`. |
-| `NUM_STEPS` | 25–35 | Inference steps. 30 is the sweet spot. Under 25 = artifacts, over 35 = diminishing returns. |
-| `GUIDANCE` | 4.0–7.0 | How closely to follow the prompt. 5.0 is balanced. Higher = more prompt-adherent but less natural. |
-| `IMG_SIZE` | 1024 | Output size in pixels. SDXL is native at 1024. Larger = more VRAM. |
+## Image Settings editor
 
----
+After a job finishes, each headshot has an **Edit** (✏️) button opening a browser studio:
+crop / zoom / reframe, brightness / contrast / saturation / warmth, **background removal
+→ fill color** (in-browser, for the clean corporate white look), **logo overlay** (drag to
+place), and export at 1K/2K/4K JPG/PNG. **Batch edit** (from the review top bar) applies
+one setup to every headshot and downloads a ZIP, with saveable presets.
+
+## Layout
+
+```
+headshot-studio/
+├── run.bat                    # one-click launcher (Windows)
+├── requirements.txt
+├── SETUP.md                   # one-time Kaggle account setup
+├── worker/
+│   ├── headshot_worker.py     # SDXL+InstantID pipeline (runs ON Kaggle)
+│   └── phase0_validate.py     # GPU automation proof
+├── app/
+│   ├── kaggle_client.py       # orchestrator: upload → run → poll → download
+│   ├── server.py              # FastAPI web UI (new job / progress / review)
+│   ├── runner.py              # background job runner
+│   └── db.py                  # SQLite job history + review decisions
+├── test_images/               # 3 sample faces
+└── jobs/                       # per-job input/output + facefoundry.db (runtime)
+```
+
+## How a job flows
+
+1. **Package** — your photos + a `job.json` (style, sliders) are copied into
+   `jobs/<id>/input/`.
+2. **Upload** — pushed as a **private** Kaggle dataset (employee photos stay
+   private by default).
+3. **Launch** — the worker kernel starts on a GPU with the dataset attached.
+4. **Poll** — the control panel waits for completion.
+5. **Download** — headshots land in `jobs/<id>/output/headshots_out/`, with a
+   structured `results.json` (per-image status/seed) and a `run.log`.
 
 ## Troubleshooting
 
-**"CUDA out of memory"**
-Reduce `IMG_SIZE` to 896 or enable more memory savings by adding `pipe.enable_model_cpu_offload()` after loading the pipeline in Cell 5.
+- **Job fails instantly at auth** — check `~/.kaggle/kaggle.json`. New `KGAT_`
+  tokens are handled automatically (passed via `KAGGLE_API_TOKEN`).
+- **Kernel errors** — open the job page → **run.log** link, or read
+  `jobs/<id>/output/run.log`. The worker tees everything there even when Kaggle
+  drops its own log.
+- **"no face detected"** — the source photo needs a reasonably clear, front-ish
+  face. Re-roll or swap the photo.
 
-**"No face detected" errors**
-Some source images may be too small, blurry, or not have a clear face. These are logged in `gen_failures`. Manually review and either replace those source images or accept them as skipped.
-
-**Kaggle session disconnects at ~1 hour**
-This happens if the browser tab goes idle. Keep the tab open in the foreground, or use Kaggle's mobile app to keep the session alive.
-
-**Downloaded ZIP is missing images**
-Check `gen_failures` list — those images weren't generated. The ZIP only contains successful outputs.
-
-**Some URLs fail to download**
-Some CDNs block datacenter IPs (Kaggle's servers). Check the `failures` list from Cell 6. Re-host those images somewhere accessible (Google Drive public link, S3 public URL, imgbb.com) and re-run.
-
-**Kaggle says "Weekly GPU quota exceeded"**
-You get 30 GPU-hours/week free. If you've used them, wait for the reset (visible in Kaggle account settings).
-
----
-
-## Quality expectations
-
-- **Best results**: source photo shows a clear frontal face, no heavy shadows, decent lighting. Output is near-professional-studio quality.
-- **Decent results**: source is slightly blurry, off-angle, or poorly lit. Output usable, may need cherry-picking.
-- **Poor results**: source has multiple faces, heavy occlusion (masks, hands over face), extreme angles, or resolution below ~200px. Output may look different from the person.
-
-For the ~5–10% of images that come out wrong, re-run them individually with a different `seed` value (Cell 7: change `seed=42 + idx` to a different offset) — often a re-roll fixes it.
-
----
-
-## Cost recap
+## Cost
 
 | Item | Cost |
 |---|---|
-| Kaggle account | Free |
-| Kaggle GPU time (30 hrs/wk) | Free |
-| SDXL, InstantID, antelopev2 models | Free (open weights) |
-| Storage for outputs | Free (Kaggle working dir) |
-| **Total for 1,500 headshots** | **$0** |
+| Kaggle account + GPU (30 hr/wk) | $0 |
+| SDXL / InstantID / antelopev2 weights | $0 (open weights) |
+| **Total** | **$0** |
+
+Upgrade path if the free tier is ever too slow: swap the GPU backend (Replicate,
+RunPod, Colab Pro) — the UI and worker stay the same.
 
 ---
 
-## If Kaggle isn't working out
+## Appendix: Kaggle-notebook workflow (legacy)
 
-Fallbacks if you hit repeated quota / session issues:
+Before the control-panel app, the pipeline ran as a hand-driven Kaggle notebook.
+That workflow is still supported — see `PLAN.md`, `notebook.py`, and
+`urls_template.csv` in this repo.
 
-- **Colab Pro** ($10/mo): more reliable sessions, higher quotas. Same notebook works with minor path changes.
-- **Replicate API** (~$0.03/image = ~$45 for 1,500): swap Cells 4–8 for a simple `replicate.run()` call using the `zsxkib/instant-id` model. Instant scale, no GPU management.
-- **RunPod** ($0.30/hr for T4): rent a GPU, run the notebook there. ~$3–4 total for 1,500 images.
+**Files:**
+
+| File | Purpose |
+|---|---|
+| `PLAN.md` | Detailed strategic plan — architecture, phased execution, risks, success criteria. |
+| `notebook.py` | Full processing pipeline. Paste into a Kaggle notebook. |
+| `urls_template.csv` | Example format for the input CSV. |
+
+**Run stages:** always sample 10 → sample 50 → full batch. Tune `IDENTITY_SCALE`,
+`ADAPTER_SCALE`, `NUM_STEPS`, `GUIDANCE`, and `STYLE_PRESET` in Cell 2 between
+stages. See `PLAN.md` for the full write-up.

@@ -1,0 +1,8 @@
+# FaceFoundry control panel — runs on YOUR PC (orchestrator + web UI).
+# The heavy ML libraries (torch, diffusers, insightface) run on Kaggle, not here.
+kaggle>=1.6.0
+
+# Phase 3 web UI
+fastapi>=0.110
+uvicorn>=0.29
+python-multipart>=0.0.9   # required by FastAPI for file uploads

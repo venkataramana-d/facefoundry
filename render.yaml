@@ -1,0 +1,23 @@
+# One-click deploy to Render (https://render.com) — a persistent host that can
+# actually run FaceFoundry (unlike Vercel/serverless).
+#   1. Push this repo to GitHub.
+#   2. Render → New → Blueprint → pick this repo.
+#   3. Set KAGGLE_USERNAME and KAGGLE_KEY in the service's Environment.
+services:
+  - type: web
+    name: facefoundry
+    runtime: docker
+    plan: free             # free tier - no card. (Sleeps after inactivity; no
+                           # persistent disk, so job history resets on restart.
+                           # Upgrade to 'starter' + a disk for always-on later.)
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /healthz
+    envVars:
+      - key: KAGGLE_USERNAME
+        sync: false          # set in the Render dashboard (secret)
+      - key: KAGGLE_KEY
+        sync: false
+      - key: FACEFOUNDRY_PASSWORD
+        sync: false          # site password (share with your manager)
+      - key: FACEFOUNDRY_USER
+        value: team          # username to go with the password

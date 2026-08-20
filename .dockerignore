@@ -1,0 +1,10 @@
+jobs/
+*.db
+__pycache__/
+*.pyc
+.venv/
+venv/
+phase0_output/
+*.log
+.git/
+.gitignore
