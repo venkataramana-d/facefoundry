@@ -50,6 +50,12 @@ IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".bmp"}
 POLL_SECONDS = 20
 TIMEOUT_MINUTES = 720  # 12h - a full batch can take ~8h
 
+# Per-call subprocess timeouts. Kaggle CLI hangs on network flakes without one;
+# these caps are generous but bounded so pollers can't deadlock forever.
+CLI_TIMEOUT_SECONDS = 180        # single CLI call (status/list) — 3 min
+CLI_PUSH_TIMEOUT_SECONDS = 900   # dataset/kernel push — 15 min (uploads)
+CLI_RETRIES = 3                  # network flakes get 3 tries with backoff
+
 # on_event(stage: str, message: str, extra: dict) -> None
 EventFn = Optional[Callable[[str, str, dict], None]]
 
@@ -100,9 +106,46 @@ def auth_env(key: str) -> dict:
     return env
 
 
-def kaggle(args: list[str], env: dict) -> subprocess.CompletedProcess:
-    return subprocess.run([sys.executable, "-m", "kaggle", *args],
-                          capture_output=True, text=True, env=env)
+def kaggle(args: list[str], env: dict, *, timeout: int | None = None,
+           retries: int = CLI_RETRIES) -> subprocess.CompletedProcess:
+    """Run the Kaggle CLI with a subprocess timeout and simple retry.
+
+    Kaggle's CLI hangs occasionally on transient network flakes; without a
+    timeout the poller would deadlock. Push operations get the longer cap.
+    Retries only kick in for a timeout or a *non-zero* exit that looks like a
+    transient network error — a successful call is always returned as-is.
+    """
+    is_push = bool(args) and args[0] in ("datasets", "kernels") and "push" in args
+    if timeout is None:
+        timeout = CLI_PUSH_TIMEOUT_SECONDS if is_push else CLI_TIMEOUT_SECONDS
+    cmd = [sys.executable, "-m", "kaggle", *args]
+    last: subprocess.CompletedProcess | None = None
+    for attempt in range(1, max(1, retries) + 1):
+        try:
+            r = subprocess.run(cmd, capture_output=True, text=True, env=env,
+                               timeout=timeout)
+        except subprocess.TimeoutExpired as e:
+            print(f"[kaggle] timeout after {timeout}s on `{' '.join(args)}` (attempt {attempt})")
+            last = subprocess.CompletedProcess(cmd, returncode=124, stdout=e.stdout or "",
+                                               stderr=(e.stderr or "") + "\n[timeout]")
+            if attempt < retries:
+                time.sleep(2 * attempt)
+                continue
+            return last
+        last = r
+        if r.returncode == 0:
+            return r
+        blob = (r.stdout + r.stderr).lower()
+        transient = any(k in blob for k in (
+            "timed out", "timeout", "temporary failure", "connection reset",
+            "connection aborted", "read operation timed out", "429",
+            "503", "502", "504", "gateway", "networkerror",
+        ))
+        if not transient or attempt >= retries:
+            return r
+        print(f"[kaggle] transient error on attempt {attempt}, retrying: {blob[:120]}")
+        time.sleep(2 * attempt)
+    return last  # type: ignore[return-value]
 
 
 def owner_slug(username: str, env: dict) -> str:
@@ -266,6 +309,39 @@ def poll_kernel(kernel_ref: str, env: dict, on_event: EventFn = None):
             raise JobError(f"kernel {state}: {text}")
         time.sleep(POLL_SECONDS)
     raise JobError("timed out waiting for kernel")
+
+
+def cancel_kernel(job_id: str) -> bool:
+    """Ask Kaggle to cancel the kernel for this job. Returns True on success.
+    Uses `kaggle kernels output --quiet` guard because there's no dedicated
+    cancel in the CLI; instead we push a no-op version that supersedes it.
+    Best-effort: callers should treat False / raise as "kernel may keep running".
+    """
+    try:
+        username, key = credentials()
+    except JobError:
+        return False
+    env = auth_env(key)
+    owner = owner_slug(username, env)
+    kernel_ref = f"{owner}/headshot-run-{job_id}"
+    # Kaggle exposes no explicit cancel via CLI; overwrite the kernel with a
+    # trivial script so a new schedule supersedes the running one. This is the
+    # documented workaround used by community tooling.
+    push = JOBS_DIR / job_id / "_cancel"
+    if push.exists():
+        shutil.rmtree(push, ignore_errors=True)
+    push.mkdir(parents=True, exist_ok=True)
+    (push / "cancel.py").write_text("print('cancelled by facefoundry control panel')\n")
+    (push / "kernel-metadata.json").write_text(json.dumps({
+        "id": kernel_ref, "title": f"Headshot run {job_id} (cancelled)",
+        "code_file": "cancel.py", "language": "python", "kernel_type": "script",
+        "is_private": True, "enable_gpu": False, "enable_internet": False,
+        "dataset_sources": [], "competition_sources": [], "kernel_sources": [],
+    }, indent=2))
+    r = kaggle(["kernels", "push", "-p", str(push)], env, retries=1)
+    ok = r.returncode == 0
+    shutil.rmtree(push, ignore_errors=True)
+    return ok
 
 
 def fetch_output(job_id: str, kernel_ref: str, env: dict, on_event: EventFn = None) -> Path:

@@ -13,6 +13,14 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
+# Non-root runtime. The app writes to jobs/ and ~/.kaggle — pre-create and chown
+# so it never needs root to bootstrap.
+RUN groupadd -r ff && useradd -r -g ff -d /app -s /sbin/nologin ff \
+ && mkdir -p /app/jobs /home/ff/.kaggle \
+ && chown -R ff:ff /app /home/ff
+USER ff
+ENV HOME=/home/ff
+
 # Kaggle credentials come from env at runtime (KAGGLE_USERNAME / KAGGLE_KEY).
 ENV PORT=8000
 EXPOSE 8000
