@@ -46,7 +46,8 @@ _SITE_USER = os.environ.get("FACEFOUNDRY_USER", "team")
 
 @app.middleware("http")
 async def _password_gate(request, call_next):
-    if _SITE_PASSWORD:
+    # /healthz is always open so host health checks pass even when gated.
+    if _SITE_PASSWORD and request.url.path != "/healthz":
         ok = False
         header = request.headers.get("authorization", "")
         if header.startswith("Basic "):
@@ -476,6 +477,12 @@ def _delete_form(job_id: str) -> str:
 # ============================================================================
 # Home: new job (split layout)
 # ============================================================================
+@app.get("/healthz")
+def healthz() -> JSONResponse:
+    """Unauthenticated health check for hosting platforms (Render, etc.)."""
+    return JSONResponse({"status": "ok"})
+
+
 @app.get("/", response_class=HTMLResponse)
 def home() -> HTMLResponse:
     style_rows = ""

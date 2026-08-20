@@ -11,7 +11,7 @@ services:
                            # persistent disk, so job history resets on restart.
                            # Upgrade to 'starter' + a disk for always-on later.)
     dockerfilePath: ./Dockerfile
-    healthCheckPath: /
+    healthCheckPath: /healthz
     envVars:
       - key: KAGGLE_USERNAME
         sync: false          # set in the Render dashboard (secret)
