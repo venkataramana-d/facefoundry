@@ -119,10 +119,14 @@ async def _security(request, call_next):
     # 3) State-changing requests: CSRF (same-origin) + rate limit.
     if request.method in _UNSAFE_METHODS:
         # CSRF: a cross-site form/fetch carries the attacker's Origin/Referer.
+        # Accept any host the platform legitimately presents (proxies rewrite Host
+        # / add X-Forwarded-Host) so real same-origin POSTs are never falsely blocked.
         src = request.headers.get("origin") or request.headers.get("referer") or ""
         if src:
-            host = request.headers.get("host", "")
-            if urlparse(src).netloc != host:
+            allowed = {h for h in (request.headers.get("host"),
+                                   request.headers.get("x-forwarded-host"),
+                                   request.url.netloc) if h}
+            if urlparse(src).netloc not in allowed:
                 return Response("cross-origin request blocked", status_code=403)
         # Rate limit per client IP.
         ip = request.client.host if request.client else "?"
