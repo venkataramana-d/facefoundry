@@ -24,10 +24,13 @@ import json
 import os
 import re
 import secrets
+import threading
 import time
 import zipfile
+from collections import defaultdict
 from html import escape
 from pathlib import Path
+from urllib.parse import urlparse
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import (FileResponse, HTMLResponse, JSONResponse,
@@ -70,11 +73,36 @@ app = FastAPI(title="FaceFoundry")
 _SITE_PASSWORD = os.environ.get("FACEFOUNDRY_PASSWORD", "")
 _SITE_USER = os.environ.get("FACEFOUNDRY_USER", "team")
 
+# Fail closed: on a real host (Render sets RENDER=true) a missing password must
+# NOT silently expose the app - refuse to serve anything but /healthz until one
+# is set. Local dev (no host env) stays open for convenience.
+_HOSTED = bool(os.environ.get("RENDER") or os.environ.get("FACEFOUNDRY_REQUIRE_AUTH")
+               or os.environ.get("FLY_APP_NAME") or os.environ.get("K_SERVICE"))
+
+# Simple in-memory per-IP rate limit for state-changing requests (resets on
+# restart). Blunts abuse/CSRF-spray on top of the concurrent-job cap.
+_RATE_MAX = 120         # unsafe requests per window per IP (roomy for rapid review;
+_RATE_WINDOW = 60       # automated abuse does far more) - seconds window
+_rate_hits: dict[str, list] = defaultdict(list)
+_rate_lock = threading.Lock()
+_UNSAFE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
+
 
 @app.middleware("http")
-async def _password_gate(request, call_next):
-    # /healthz is always open so host health checks pass even when gated.
-    if _SITE_PASSWORD and request.url.path != "/healthz":
+async def _security(request, call_next):
+    path = request.url.path
+    if path == "/healthz":                       # always open for health checks
+        return await call_next(request)
+
+    # 1) Fail closed when hosted without a password configured.
+    if _HOSTED and not _SITE_PASSWORD:
+        return Response(
+            "This deployment has no access password configured. Set the "
+            "FACEFOUNDRY_PASSWORD environment variable to enable access.",
+            status_code=503)
+
+    # 2) HTTP Basic password gate.
+    if _SITE_PASSWORD:
         ok = False
         header = request.headers.get("authorization", "")
         if header.startswith("Basic "):
@@ -87,6 +115,26 @@ async def _password_gate(request, call_next):
         if not ok:
             return Response("Authentication required", status_code=401,
                             headers={"WWW-Authenticate": 'Basic realm="FaceFoundry"'})
+
+    # 3) State-changing requests: CSRF (same-origin) + rate limit.
+    if request.method in _UNSAFE_METHODS:
+        # CSRF: a cross-site form/fetch carries the attacker's Origin/Referer.
+        src = request.headers.get("origin") or request.headers.get("referer") or ""
+        if src:
+            host = request.headers.get("host", "")
+            if urlparse(src).netloc != host:
+                return Response("cross-origin request blocked", status_code=403)
+        # Rate limit per client IP.
+        ip = request.client.host if request.client else "?"
+        now = time.time()
+        with _rate_lock:
+            hits = [t for t in _rate_hits[ip] if now - t < _RATE_WINDOW]
+            if len(hits) >= _RATE_MAX:
+                _rate_hits[ip] = hits
+                return Response("Too many requests - slow down.", status_code=429)
+            hits.append(now)
+            _rate_hits[ip] = hits
+
     return await call_next(request)
 
 STYLES = [
