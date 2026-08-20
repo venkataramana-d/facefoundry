@@ -7,13 +7,11 @@ services:
   - type: web
     name: facefoundry
     runtime: docker
-    plan: starter          # needs a persistent (non-serverless) plan
+    plan: free             # free tier - no card. (Sleeps after inactivity; no
+                           # persistent disk, so job history resets on restart.
+                           # Upgrade to 'starter' + a disk for always-on later.)
     dockerfilePath: ./Dockerfile
     healthCheckPath: /
-    disk:
-      name: facefoundry-data
-      mountPath: /app/jobs   # persist jobs + SQLite across restarts
-      sizeGB: 5
     envVars:
       - key: KAGGLE_USERNAME
         sync: false          # set in the Render dashboard (secret)
