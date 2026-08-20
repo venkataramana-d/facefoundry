@@ -510,12 +510,16 @@ def home() -> HTMLResponse:
       <div class=split>
         <div class=panel>
           <h2>1 · Source photos</h2>
+          <div class=chips id=upmode style="margin-bottom:12px">
+            <span class="chip on" data-mode="folder">Whole folder</span>
+            <span class=chip data-mode="single">Single / few images</span>
+          </div>
           <div class=dropzone id=dz>
             <input id=images type=file name=images accept="image/*" multiple required webkitdirectory
                    onchange="cnt(this)">
             <div>
               <div class=dz-ic>{ICON['folder']}</div>
-              <div class=dz-t>Drop a folder here, or click to browse</div>
+              <div class=dz-t id=dztitle>Drop a folder here, or click to browse</div>
               <div class=dz-s>Clear, front-facing faces work best · JPG / PNG</div>
               <div class=dz-count id=dzc></div>
             </div>
@@ -568,6 +572,22 @@ def home() -> HTMLResponse:
       }}
       ['dragenter','dragover'].forEach(e => dz.addEventListener(e, ev => {{ev.preventDefault(); dz.classList.add('hot');}}));
       ['dragleave','drop'].forEach(e => dz.addEventListener(e, ev => {{ev.preventDefault(); dz.classList.remove('hot');}}));
+      // Folder vs single/few images toggle
+      const upmode = document.getElementById('upmode');
+      upmode.addEventListener('click', e => {{
+        if (!e.target.dataset.mode) return;
+        [].forEach.call(upmode.children, c => c.classList.remove('on'));
+        e.target.classList.add('on');
+        const inp = document.getElementById('images');
+        if (e.target.dataset.mode === 'single') {{
+          inp.removeAttribute('webkitdirectory');
+          document.getElementById('dztitle').textContent = 'Choose one or more images, or drop them here';
+        }} else {{
+          inp.setAttribute('webkitdirectory', '');
+          document.getElementById('dztitle').textContent = 'Drop a folder here, or click to browse';
+        }}
+        inp.value = ''; document.getElementById('dzc').textContent = '';
+      }});
     </script>"""
     return HTMLResponse(_shell("FaceFoundry", "new", topbar, content))
 
