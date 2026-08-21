@@ -365,9 +365,11 @@ svg {{ display:block; }}
 .sidefoot {{ display:flex; align-items:center; gap:8px; font-size:12px; color:var(--muted); padding:12px 10px 4px; border-top:1px solid var(--line); margin-top:6px; }}
 
 .workspace {{ flex:1; min-width:0; display:flex; flex-direction:column; }}
-.topbar {{ position:sticky; top:0; z-index:10; display:flex; align-items:center; justify-content:space-between; gap:16px;
-  height:66px; padding:0 30px; background:rgba(255,255,255,.82); backdrop-filter:blur(12px); border-bottom:1px solid var(--line); }}
+.topbar {{ position:sticky; top:0; z-index:10; display:flex; align-items:center; justify-content:space-between; gap:12px 16px;
+  flex-wrap:wrap; min-height:66px; padding:12px 30px; background:rgba(255,255,255,.82); backdrop-filter:blur(12px); border-bottom:1px solid var(--line); }}
 .topbar .tt {{ font-size:17px; font-weight:650; letter-spacing:-.3px; }}
+.topbar .actions {{ justify-content:flex-end; align-items:center; flex:1 1 auto; }}
+.topbar .actions form {{ display:flex; }}
 .topbar .tt small {{ display:block; font-size:12.5px; font-weight:400; color:var(--muted); letter-spacing:0; margin-top:1px; }}
 .content {{ padding:30px; max-width:1000px; width:100%; }}
 
@@ -1054,8 +1056,7 @@ def _review_page(j: dict) -> str:
     # re-run same faces with a different style
     style_opts = "".join(f'<option value="{v}">{escape(n)}</option>' for v, n, _ in STYLES)
     topbar = (f'<div class=tt>Review your headshots'
-              f'<small>Each card shows the original next to the new headshot. Keep the ones you like, then download. '
-              f'Keyboard: A to keep, R to reject, J and K to move.</small></div>'
+              f'<small>Original vs. new headshot. Keep the ones you like, then download.</small></div>'
               f'<div class=actions>'
               f'<a class="btn ghost sm" href="/jobs/{jid}/edit">{ICON["edit"]} Edit all</a>'
               f'<a class="btn sm" href="/jobs/{jid}/download?scope=approved">{ICON["download"]} Download kept</a>'
