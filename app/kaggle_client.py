@@ -283,8 +283,32 @@ def launch_kernel(job_id: str, dataset_ref: str, owner: str, env: dict, on_event
     r = kaggle(["kernels", "push", "-p", str(push_dir)], env)
     print("   " + (r.stdout + r.stderr).strip())
     if r.returncode != 0:
-        raise JobError(f"kernel push failed: {(r.stdout + r.stderr).strip()}")
+        raise JobError(f"kernel push failed: {(r.stdout + r.stderr).strip()}\n\n{_auth_diag(env)}")
     return kernel_ref
+
+
+def _auth_diag(env: dict) -> str:
+    """Self-diagnosing footer for auth failures - tells us exactly what the live
+    environment looks like (kaggle version, kaggle.json state, token presence)
+    without ever revealing the secret key."""
+    try:
+        ver = kaggle(["--version"], env, retries=1).stdout.strip().splitlines()[0]
+    except Exception as e:
+        ver = f"(could not run kaggle --version: {e})"
+    kj = Path.home() / ".kaggle" / "kaggle.json"
+    info = f"kaggle.json exists: {kj.is_file()}"
+    if kj.is_file():
+        try:
+            d = json.loads(kj.read_text())
+            info += f" | user={d.get('username')!r} key_len={len(d.get('key',''))} key_prefix={d.get('key','')[:5]!r}"
+        except Exception as e:
+            info += f" | (unreadable: {e})"
+    return ("[diagnostics] " + ver
+            + f" | KAGGLE_API_TOKEN set: {'KAGGLE_API_TOKEN' in env}"
+            + f" | legacy KAGGLE_KEY in CLI env: {'KAGGLE_KEY' in env} (should be False)"
+            + f" | HOME={env.get('HOME')} | " + info
+            + "\nIf 'kaggle' version is NOT 2.2.4, do a CLEAN rebuild on the host "
+              "(Render: Manual Deploy -> Clear build cache & deploy).")
 
 
 def _parse_kernel_state(text: str) -> str:
