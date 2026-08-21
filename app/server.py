@@ -73,11 +73,11 @@ app = FastAPI(title="FaceFoundry")
 _SITE_PASSWORD = os.environ.get("FACEFOUNDRY_PASSWORD", "")
 _SITE_USER = os.environ.get("FACEFOUNDRY_USER", "team")
 
-# Fail closed: on a real host (Render sets RENDER=true) a missing password must
-# NOT silently expose the app - refuse to serve anything but /healthz until one
-# is set. Local dev (no host env) stays open for convenience.
-_HOSTED = bool(os.environ.get("RENDER") or os.environ.get("FACEFOUNDRY_REQUIRE_AUTH")
-               or os.environ.get("FLY_APP_NAME") or os.environ.get("K_SERVICE"))
+# Strict auth is OPT-IN. Set FACEFOUNDRY_REQUIRE_AUTH=1 to force a password (the
+# app then serves only /healthz until FACEFOUNDRY_PASSWORD is set). By default,
+# leaving FACEFOUNDRY_PASSWORD unset simply runs the app open (no login) - which
+# is what you want when you deliberately remove the password to share a link.
+_HOSTED = bool(os.environ.get("FACEFOUNDRY_REQUIRE_AUTH"))
 
 # Simple in-memory per-IP rate limit for state-changing requests (resets on
 # restart). Blunts abuse/CSRF-spray on top of the concurrent-job cap.

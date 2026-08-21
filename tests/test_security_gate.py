@@ -65,17 +65,17 @@ class TestRateLimit:
 
 class TestFailClosed:
     def test_hosted_without_password_refuses(self):
-        s = _fresh_app(RENDER="true")
+        s = _fresh_app(FACEFOUNDRY_REQUIRE_AUTH="1")
         with TestClient(s.app) as c:
             assert c.get("/").status_code == 503
             assert c.get("/healthz").status_code == 200   # health check still open
 
-    def test_hosted_with_password_gates_normally(self):
-        s = _fresh_app(RENDER="true", FACEFOUNDRY_PASSWORD="pw")
+    def test_require_auth_with_password_gates_normally(self):
+        s = _fresh_app(FACEFOUNDRY_REQUIRE_AUTH="1", FACEFOUNDRY_PASSWORD="pw")
         with TestClient(s.app) as c:
             assert c.get("/").status_code == 401           # gated, not 503
 
-    def test_local_without_password_is_open(self):
-        s = _fresh_app()                                    # no host env
+    def test_no_password_is_open(self):
+        s = _fresh_app()                                    # no password, not strict
         with TestClient(s.app) as c:
-            assert c.get("/").status_code == 200
+            assert c.get("/").status_code == 200           # open, no login
