@@ -150,6 +150,7 @@ STYLES = [
     ("startup_casual", "Startup Casual", "Bright white, relaxed and modern"),
     ("healthcare", "Healthcare", "Clinical white, medical coat"),
     ("academic", "Academic", "Muted library, tweed and cardigan"),
+    ("edstellar_executive", "Edstellar Executive", "Navy suit, light-blue shirt, pure white bg"),
 ]
 IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".bmp"}
 
@@ -452,6 +453,7 @@ input:focus,select:focus {{ outline:none; border-color:var(--accent); box-shadow
 .sw2 {{ background:linear-gradient(135deg,#d97706,#fbbf24); }} .sw3 {{ background:linear-gradient(135deg,#1e3a8a,#6d28d9); }}
 .sw4 {{ background:linear-gradient(135deg,#0a66c2,#7ea9d6); }} .sw5 {{ background:linear-gradient(135deg,#e2e8f0,#a3bffa); }}
 .sw6 {{ background:linear-gradient(135deg,#0891b2,#e6f6fa); }} .sw7 {{ background:linear-gradient(135deg,#78350f,#b08968); }}
+.sw8 {{ background:linear-gradient(135deg,#1e3a8a,#dbeafe); }}
 .srow .name {{ font-weight:600; }} .srow .desc {{ font-size:12px; color:var(--muted); }}
 
 /* ---- status dashboard ---- */
@@ -869,12 +871,16 @@ async def create_job(
 
     out_size = int(resolution) if resolution in {"1024", "2048", "4096"} else 2048
     steps = SPEED_STEPS.get(speed, 30)
+    # The Edstellar Executive preset is opinionated: always pure white background +
+    # face enhance so it matches the reference in one click.
+    is_edstellar = style == "edstellar_executive"
     cfg = {
         "job_id": job_id, "input_mode": "images", "style_preset": style,
         "limit": int(limit) if limit.strip().isdigit() else None,
         "img_size": 1024, "output_size": out_size, "num_steps": steps, "guidance": guidance,
         "identity_scale": identity, "adapter_scale": adapter, "seed_base": seed,
-        "face_enhance": bool(face_enhance), "white_background": bool(white_background),
+        "face_enhance": bool(face_enhance) or is_edstellar,
+        "white_background": bool(white_background) or is_edstellar,
         "multi_reference": bool(multi_reference),
         "background": background.strip()[:80], "custom_prompt": custom_prompt.strip()[:200],
     }

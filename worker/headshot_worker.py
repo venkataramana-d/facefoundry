@@ -185,6 +185,21 @@ STYLE_PRESETS = {
         "prompt": "distinguished academic faculty portrait, a person, muted warm library background softly blurred, tweed jacket or smart cardigan, soft directional light, thoughtful composed expression, photorealistic, shot on 85mm lens",
         "negative": "cartoon, anime, illustration, painting, 3d render, blurry, low quality, distorted face, extra limbs, watermark, text, neon, oversaturated",
     },
+    # Tuned to the Edstellar reference: full-colour, navy suit, light-blue shirt,
+    # navy tie, pure white studio background, bright even light, glasses kept.
+    "edstellar_executive": {
+        # Kept short on purpose: SDXL/CLIP only reads the first 77 tokens, so the
+        # color + wardrobe + white-background words are front-loaded to fit inside it.
+        "prompt": ("color photograph, professional corporate headshot, dark navy blue suit, "
+                   "light blue dress shirt, navy tie, pure white studio background, soft even "
+                   "studio lighting, natural skin tones, keeps eyeglasses, calm confident "
+                   "expression, head and shoulders, sharp focus, 85mm portrait, realistic, "
+                   "highly detailed"),
+        "negative": ("grayscale, black and white, monochrome, desaturated, dull colors, dark "
+                     "background, grey background, distorted, deformed face, warped, asymmetric "
+                     "face, bad anatomy, plastic skin, waxy skin, oversharpened, oversaturated, "
+                     "blurry, low quality, cartoon, 3d render, logo, watermark, text"),
+    },
 }
 
 
@@ -315,9 +330,22 @@ def build_pipeline(cfg):
     controlnet = ControlNetModel.from_pretrained(
         str(CHECKPOINTS_DIR / "ControlNetModel"), torch_dtype=torch.float16)
 
-    pipe = StableDiffusionXLInstantIDPipeline.from_pretrained(
-        "stabilityai/stable-diffusion-xl-base-1.0",
-        controlnet=controlnet, torch_dtype=torch.float16).to(device)
+    # Base checkpoint. A photoreal SDXL finetune (RealVisXL) produces far more
+    # natural, true-to-life corporate headshots with InstantID than vanilla
+    # SDXL base (which looks plasticky/illustrated). Falls back to SDXL base if
+    # the photoreal repo can't be fetched, so a job never hard-fails on this.
+    base_model = cfg.get("base_model") or "SG161222/RealVisXL_V4.0"
+    try:
+        pipe = StableDiffusionXLInstantIDPipeline.from_pretrained(
+            base_model,
+            controlnet=controlnet, torch_dtype=torch.float16).to(device)
+        print(f"[pipeline] base model: {base_model}", flush=True)
+    except Exception as e:
+        print(f"[pipeline] could not load {base_model} ({e}); "
+              f"falling back to stable-diffusion-xl-base-1.0", flush=True)
+        pipe = StableDiffusionXLInstantIDPipeline.from_pretrained(
+            "stabilityai/stable-diffusion-xl-base-1.0",
+            controlnet=controlnet, torch_dtype=torch.float16).to(device)
     pipe.load_ip_adapter_instantid(str(CHECKPOINTS_DIR / "ip-adapter.bin"))
     pipe.set_ip_adapter_scale(cfg["adapter_scale"])
     pipe.enable_vae_tiling()
@@ -491,10 +519,14 @@ def make_processor(cfg, pipe, face_app, draw_kps, device):
     import cv2
     import numpy as np
     import torch
-    from PIL import Image, ImageFilter
+    from PIL import Image, ImageEnhance, ImageFilter
 
     preset = STYLE_PRESETS.get(cfg["style_preset"], STYLE_PRESETS["corporate"])
     prompt, negative = preset["prompt"], preset["negative"]
+    # The Edstellar look wants richer colour than SDXL's default corporate output,
+    # which can come out flat/grey. Give this preset a gentle vibrance + contrast
+    # lift so results match the bright, colourful reference.
+    vibrance = cfg["style_preset"] == "edstellar_executive"
     # Sanitize user prompt tweaks before they touch the SDXL prompt - blocks
     # nsfw/violence injection via the "background" and "custom prompt" fields.
     bg_txt = sanitize_user_text(cfg.get("background", ""), 80)
@@ -508,6 +540,12 @@ def make_processor(cfg, pipe, face_app, draw_kps, device):
 
     gen_size = int(cfg["img_size"])          # SDXL renders best at its native 1024
     out_size = int(cfg.get("output_size", gen_size))
+    # Edstellar look: keep InstantID at its safe defaults (identity 0.8, guidance
+    # 5.0). Pushing these higher over-constrains the face and produces distorted,
+    # over-fried results - the colour + white background come from the prompt and
+    # the post-process vibrance, NOT from cranking guidance/controlnet.
+    id_scale = cfg["identity_scale"]
+    guidance = cfg["guidance"]
     enhancer = _load_face_enhancer() if cfg.get("face_enhance") else None
     bg_session = _load_bg_remover() if cfg.get("white_background") else None
     upscaler = _load_realesrgan(out_size) if (out_size > gen_size and cfg.get("realesrgan_upscale", True)) else None
@@ -529,19 +567,25 @@ def make_processor(cfg, pipe, face_app, draw_kps, device):
         result = pipe(
             prompt=prompt, negative_prompt=negative,
             image_embeds=embedding, image=kps,
-            controlnet_conditioning_scale=cfg["identity_scale"],
+            controlnet_conditioning_scale=id_scale,
             ip_adapter_scale=cfg["adapter_scale"],
-            num_inference_steps=cfg["num_steps"], guidance_scale=cfg["guidance"],
+            num_inference_steps=cfg["num_steps"], guidance_scale=guidance,
             width=gen_size, height=gen_size, generator=gen,
         ).images[0]
         # Optional GFPGAN face restoration (sharper eyes/skin). Fully guarded.
+        # We blend the restored face back at 70% rather than replacing outright:
+        # full-strength GFPGAN smooths skin into a waxy/plastic look, so a partial
+        # blend keeps the crisper eyes while preserving natural skin texture.
         if enhancer is not None:
             try:
                 bgr = cv2.cvtColor(np.array(result), cv2.COLOR_RGB2BGR)
                 _, _, restored = enhancer.enhance(bgr, has_aligned=False,
                                                   only_center_face=True, paste_back=True)
                 if restored is not None:
-                    result = Image.fromarray(cv2.cvtColor(restored, cv2.COLOR_BGR2RGB))
+                    restored_img = Image.fromarray(cv2.cvtColor(restored, cv2.COLOR_BGR2RGB))
+                    if restored_img.size != result.size:
+                        restored_img = restored_img.resize(result.size, Image.LANCZOS)
+                    result = Image.blend(result, restored_img, 0.7)
             except Exception as e:
                 print(f"[enhance] restore failed for this image, using original: {e}", flush=True)
         # Optional pure-white background. Fully guarded.
@@ -552,6 +596,14 @@ def make_processor(cfg, pipe, face_app, draw_kps, device):
                                 bgcolor=(255, 255, 255, 255)).convert("RGB")
             except Exception as e:
                 print(f"[whitebg] failed for this image, keeping background: {e}", flush=True)
+        # Gentle colour + contrast lift for the Edstellar look (counters the flat
+        # grey result). Applied to the full image before upscale.
+        if vibrance:
+            try:
+                result = ImageEnhance.Color(result).enhance(1.15)
+                result = ImageEnhance.Contrast(result).enhance(1.03)
+            except Exception as e:
+                print(f"[vibrance] skipped: {e}", flush=True)
         # Upscale to requested output resolution. Real-ESRGAN preserves detail
         # far better than plain Lanczos at 2K/4K; falls back to Lanczos+unsharp
         # if the upscaler wasn't loadable.

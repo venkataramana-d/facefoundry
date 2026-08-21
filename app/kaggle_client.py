@@ -555,7 +555,8 @@ def main():
                     help="one-time: build the facefoundry-models dataset to speed up future jobs")
     ap.add_argument("--style", default="corporate",
                     choices=["corporate", "modern_tech", "warm_friendly", "formal_executive",
-                             "linkedin_classic", "startup_casual", "healthcare", "academic"])
+                             "linkedin_classic", "startup_casual", "healthcare", "academic",
+                             "edstellar_executive"])
     ap.add_argument("--limit", type=int, default=None, help="cap number of images (test with a few)")
     ap.add_argument("--job-id", dest="job_id", default=None, help="job id (default: timestamp-ish)")
     ap.add_argument("--img-size", dest="img_size", type=int, default=1024)

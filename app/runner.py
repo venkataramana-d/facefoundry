@@ -9,7 +9,7 @@ import threading
 import traceback
 from pathlib import Path
 
-from . import db
+from . import api_engine, db
 from .kaggle_client import JobError, resume_job, run_job
 
 # job_id -> Thread, so we can tell if a job is still actively running.
@@ -69,6 +69,14 @@ def _track(job_id: str, work) -> None:
 
 
 def _run(job_id: str, images_dir: Path, cfg: dict) -> None:
+    # Advanced engine: when an image-API key is configured, generate via the
+    # image model (fast, photoreal). Otherwise fall back to the Kaggle GPU
+    # pipeline. Same job-folder contract either way, so the UI is unchanged.
+    if api_engine.is_configured():
+        db.update_job(job_id, status="running", stage="pack", step=1,
+                      message="Preparing images (image-API engine)")
+        _track(job_id, lambda oe: api_engine.run_api_job(images_dir, cfg, job_id, on_event=oe))
+        return
     db.update_job(job_id, status="running", stage="auth", step=1,
                   message="Authenticating with Kaggle")
     _track(job_id, lambda oe: run_job(images_dir, cfg, job_id, on_event=oe))
