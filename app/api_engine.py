@@ -56,7 +56,9 @@ def api_key() -> str | None:
     try:
         f = REPO / ".api_key"
         if f.is_file():
-            txt = f.read_text(encoding="utf-8").strip()
+            # utf-8-sig strips a BOM that Notepad may prepend; also drop any stray
+            # BOM/whitespace so the key is never silently corrupted.
+            txt = f.read_text(encoding="utf-8-sig").strip().lstrip("﻿").strip()
             if txt:
                 return txt
     except Exception:

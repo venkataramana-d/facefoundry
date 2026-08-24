@@ -7,7 +7,7 @@ jobs/
 kaggle.json
 .kaggle/
 .env
-.api_key
+.api_key*
 *.pem
 
 # ---- python ----
