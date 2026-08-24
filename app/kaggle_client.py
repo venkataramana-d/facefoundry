@@ -545,6 +545,8 @@ def make_cfg(args) -> dict:
         "identity_scale": args.identity,
         "adapter_scale": args.adapter,
         "seed_base": args.seed,
+        "aspect": args.aspect,
+        "base_model": args.base_model,
     }
 
 
@@ -566,6 +568,10 @@ def main():
     ap.add_argument("--limit", type=int, default=None, help="cap number of images (test with a few)")
     ap.add_argument("--job-id", dest="job_id", default=None, help="job id (default: timestamp-ish)")
     ap.add_argument("--img-size", dest="img_size", type=int, default=1024)
+    ap.add_argument("--aspect", default="square", choices=["square", "portrait"],
+                    help="output framing: square (1:1) or portrait (4:5 crop)")
+    ap.add_argument("--base-model", dest="base_model", default=None,
+                    help="override base checkpoint (default RealVisXL V4.0)")
     ap.add_argument("--output-size", dest="output_size", type=int, default=1024,
                     help="final saved resolution; upscaled from img_size (e.g. 2048, 4096)")
     ap.add_argument("--custom-prompt", dest="custom_prompt", default="")

@@ -284,13 +284,15 @@ def run_api_job(images_dir: Path, cfg: dict, job_id: str, on_event=None) -> dict
             # Upscale to requested output size if the model returned smaller.
             if out_size > max(img.size):
                 img = img.resize((out_size, out_size), Image.LANCZOS)
-            # Optional portrait 4:5 headshot crop (centered).
+            # Optional portrait 4:5 framing by PADDING (never crops).
             if cfg.get("aspect") == "portrait":
                 w, h = img.size
-                tw = int(round(h * 4 / 5))
-                if 0 < tw < w:
-                    left = (w - tw) // 2
-                    img = img.crop((left, 0, left + tw, h))
+                th = int(round(w * 5 / 4))
+                if th > h:
+                    bg = img.getpixel((2, 2))
+                    canvas = Image.new("RGB", (w, th), bg)
+                    canvas.paste(img, (0, int((th - h) * 0.6)))
+                    img = canvas
             dst = out_dir / f"{stem}.jpg"
             img.save(dst, "JPEG", quality=95, subsampling=0)
             results.append({"stem": stem, "status": "ok", "output": f"{stem}.jpg",

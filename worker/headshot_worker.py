@@ -156,10 +156,10 @@ def sanitize_user_text(s: str, max_len: int) -> str:
 # One shared negative prompt for every style. Kept concise and front-loaded with
 # the anti-grayscale + anti-distortion + anti-artifact terms that matter most,
 # because CLIP only reads the first ~77 tokens (see note on the positives below).
-_NEG = ("grayscale, black and white, monochrome, desaturated, dull colors, distorted, "
-        "deformed face, warped, asymmetric face, bad anatomy, extra fingers, plastic skin, "
-        "waxy skin, oversharpened, oversaturated, blurry, out of focus, low quality, cartoon, "
-        "anime, 3d render, illustration, watermark, text, logo")
+_NEG = ("plastic skin, waxy skin, airbrushed, retouched, beauty filter, doll-like, overexposed, "
+        "blown highlights, harsh lighting, hdr, cgi, 3d render, cartoon, anime, grayscale, "
+        "desaturated, oversaturated, oversharpened, distorted, deformed face, warped, asymmetric "
+        "face, bad anatomy, extra fingers, blurry, low quality, watermark, text, logo")
 
 # IMPORTANT: SDXL's CLIP text encoder only reads the FIRST 77 TOKENS of a prompt;
 # anything past that is silently dropped. So every positive prompt below is kept
@@ -228,13 +228,11 @@ STYLE_PRESETS = {
     # navy tie, pure white studio background, bright even light, glasses kept.
     "edstellar_executive": {
         "prompt": ("RAW color photo, professional corporate headshot of a person, dark navy blue "
-                   "suit, light-blue dress shirt, navy tie, pure white studio backdrop, bright "
-                   "even softbox light, keeps eyeglasses, calm confident look, natural skin "
-                   "texture, sharp focus on the eyes, 85mm, ultra realistic, highly detailed"),
-        "negative": ("grayscale, black and white, monochrome, desaturated, dull colors, dark "
-                     "background, grey background, distorted, deformed face, warped, asymmetric "
-                     "face, bad anatomy, plastic skin, waxy skin, oversharpened, oversaturated, "
-                     "blurry, low quality, cartoon, 3d render, logo, watermark, text"),
+                   "suit, light-blue dress shirt, plain navy tie, pure white studio backdrop, "
+                   "soft even natural studio lighting, keeps eyeglasses, keeps their real age, "
+                   "calm neutral look, natural detailed skin texture, visible skin pores, "
+                   "unretouched, sharp focus on the eyes, 85mm, realistic photograph"),
+        "negative": _NEG,
     },
 }
 
@@ -371,14 +369,20 @@ def build_pipeline(cfg):
     # SDXL base (which looks plasticky/illustrated). Falls back to SDXL base if
     # the photoreal repo can't be fetched, so a job never hard-fails on this.
     base_model = cfg.get("base_model") or "SG161222/RealVisXL_V4.0"
-    try:
-        pipe = StableDiffusionXLInstantIDPipeline.from_pretrained(
-            base_model,
-            controlnet=controlnet, torch_dtype=torch.float16).to(device)
-        print(f"[pipeline] base model: {base_model}", flush=True)
-    except Exception as e:
-        print(f"[pipeline] could not load {base_model} ({e}); "
-              f"falling back to stable-diffusion-xl-base-1.0", flush=True)
+    # Try the fp16 variant first (newer RealVis repos ship only fp16-named files),
+    # then the default names, then vanilla SDXL base as a last resort. This lets
+    # newer checkpoints (RealVisXL V5.0 etc.) load instead of silently falling back.
+    pipe = None
+    for label, kwargs in (("fp16 variant", {"variant": "fp16"}), ("default", {})):
+        try:
+            pipe = StableDiffusionXLInstantIDPipeline.from_pretrained(
+                base_model, controlnet=controlnet, torch_dtype=torch.float16, **kwargs).to(device)
+            print(f"[pipeline] base model: {base_model} ({label})", flush=True)
+            break
+        except Exception as e:
+            print(f"[pipeline] {base_model} {label} load failed: {e}", flush=True)
+    if pipe is None:
+        print("[pipeline] falling back to stable-diffusion-xl-base-1.0", flush=True)
         pipe = StableDiffusionXLInstantIDPipeline.from_pretrained(
             "stabilityai/stable-diffusion-xl-base-1.0",
             controlnet=controlnet, torch_dtype=torch.float16).to(device)
@@ -581,7 +585,7 @@ def make_processor(cfg, pipe, face_app, draw_kps, device):
     # over-fried results - the colour + white background come from the prompt and
     # the post-process vibrance, NOT from cranking guidance/controlnet.
     id_scale = cfg["identity_scale"]
-    guidance = cfg["guidance"]
+    guidance = cfg["guidance"]          # keep the standard 5.0 - lower drains colour
     enhancer = _load_face_enhancer() if cfg.get("face_enhance") else None
     bg_session = _load_bg_remover() if cfg.get("white_background") else None
     upscaler = _load_realesrgan(out_size) if (out_size > gen_size and cfg.get("realesrgan_upscale", True)) else None
@@ -596,6 +600,19 @@ def make_processor(cfg, pipe, face_app, draw_kps, device):
         face = sorted(faces, key=lambda x: (x["bbox"][2] - x["bbox"][0]) * (x["bbox"][3] - x["bbox"][1]),
                       reverse=True)[0]
         kps = draw_kps(Image.fromarray(cv2.cvtColor(img, cv2.COLOR_BGR2RGB)), face["kps"])
+        # Headroom: InstantID otherwise frames the face very tight and crops the
+        # top of the head. Shrink the keypoint control map to ~72% of the canvas
+        # and shift it DOWN, so the generated head sits smaller with clear space
+        # above it (full head, nothing cut off). Placement 22% from the top gives
+        # a natural studio-portrait headroom.
+        try:
+            kw, kh = int(kps.width * 0.72), int(kps.height * 0.72)
+            kctrl = Image.new("RGB", (kps.width, kps.height), (0, 0, 0))
+            kctrl.paste(kps.resize((kw, kh), Image.LANCZOS),
+                        ((kps.width - kw) // 2, int((kps.height - kh) * 0.22)))
+            kps = kctrl
+        except Exception as e:
+            print(f"[framing] headroom adjust skipped: {e}", flush=True)
         # Use the averaged batch embedding when caller supplied one - sharper
         # identity across a batch of the same person's photos.
         embedding = avg_embedding if avg_embedding is not None else face["embedding"]
@@ -609,9 +626,10 @@ def make_processor(cfg, pipe, face_app, draw_kps, device):
             width=gen_size, height=gen_size, generator=gen,
         ).images[0]
         # Optional GFPGAN face restoration (sharper eyes/skin). Fully guarded.
-        # We blend the restored face back at 70% rather than replacing outright:
-        # full-strength GFPGAN smooths skin into a waxy/plastic look, so a partial
-        # blend keeps the crisper eyes while preserving natural skin texture.
+        # GFPGAN "beautifies" - it smooths skin into a waxy/plastic look and
+        # de-ages the face. We blend it back at only 35% so it crisps the eyes a
+        # little while KEEPING the natural skin texture and true age from the base
+        # render (which is what makes a photo read as real, not AI).
         if enhancer is not None:
             try:
                 bgr = cv2.cvtColor(np.array(result), cv2.COLOR_RGB2BGR)
@@ -621,7 +639,7 @@ def make_processor(cfg, pipe, face_app, draw_kps, device):
                     restored_img = Image.fromarray(cv2.cvtColor(restored, cv2.COLOR_BGR2RGB))
                     if restored_img.size != result.size:
                         restored_img = restored_img.resize(result.size, Image.LANCZOS)
-                    result = Image.blend(result, restored_img, 0.7)
+                    result = Image.blend(result, restored_img, 0.55)
             except Exception as e:
                 print(f"[enhance] restore failed for this image, using original: {e}", flush=True)
         # Optional pure-white background. Fully guarded.
@@ -632,12 +650,13 @@ def make_processor(cfg, pipe, face_app, draw_kps, device):
                                 bgcolor=(255, 255, 255, 255)).convert("RGB")
             except Exception as e:
                 print(f"[whitebg] failed for this image, keeping background: {e}", flush=True)
-        # Gentle colour + contrast lift for the Edstellar look (counters the flat
-        # grey result). Applied to the full image before upscale.
+        # Very gentle colour lift only (counters any flat/grey cast). Kept small
+        # so skin stays a natural, true tone instead of going warm/orange and
+        # over-saturated. No contrast punch - that reads as "processed".
         if vibrance:
             try:
-                result = ImageEnhance.Color(result).enhance(1.15)
-                result = ImageEnhance.Contrast(result).enhance(1.03)
+                result = ImageEnhance.Color(result).enhance(1.12)
+                result = ImageEnhance.Contrast(result).enhance(1.02)
             except Exception as e:
                 print(f"[vibrance] skipped: {e}", flush=True)
         # Upscale to requested output resolution. Real-ESRGAN preserves detail
@@ -650,19 +669,27 @@ def make_processor(cfg, pipe, face_app, draw_kps, device):
                 except Exception as e:
                     print(f"[upscale] Real-ESRGAN failed, using Lanczos: {e}", flush=True)
                     result = result.resize((out_size, out_size), Image.LANCZOS)
-                    result = result.filter(ImageFilter.UnsharpMask(radius=2.2, percent=70, threshold=2))
+                    result = result.filter(ImageFilter.UnsharpMask(radius=1.2, percent=35, threshold=3))
             else:
                 result = result.resize((out_size, out_size), Image.LANCZOS)
-                result = result.filter(ImageFilter.UnsharpMask(radius=2.2, percent=70, threshold=2))
-        # Optional portrait framing: crop the square result to a 4:5 headshot
-        # aspect (centered on the face, which InstantID keeps centred) - no
-        # distortion, just a tighter, more editorial head-and-shoulders crop.
+                result = result.filter(ImageFilter.UnsharpMask(radius=1.2, percent=35, threshold=3))
+        # (No extra sharpening pass: Real-ESRGAN already gives clean, crisp detail.
+        # An added unsharp mask risked an over-processed / etched look, so we leave
+        # the render as-is to keep it natural.)
+        # Optional portrait framing: PAD the square result to a 4:5 aspect by
+        # adding matching-background canvas (never crops - nothing is cut off).
+        # The extra height goes mostly to the top as headroom, like a studio
+        # portrait. Background colour is sampled from the top-left corner so it
+        # blends on white or any solid backdrop.
         if cfg.get("aspect") == "portrait":
             w, h = result.size
-            tw = int(round(h * 4 / 5))
-            if 0 < tw < w:
-                left = (w - tw) // 2
-                result = result.crop((left, 0, left + tw, h))
+            th = int(round(w * 5 / 4))            # 4:5 -> taller than square
+            if th > h:
+                bg = result.getpixel((2, 2))       # sample corner (usually the bg)
+                canvas = Image.new("RGB", (w, th), bg)
+                top = int((th - h) * 0.6)          # 60% of the pad above (headroom)
+                canvas.paste(result, (0, top))
+                result = canvas
         result.save(dst_path, "JPEG", quality=95, subsampling=0)
         return True, None
 
