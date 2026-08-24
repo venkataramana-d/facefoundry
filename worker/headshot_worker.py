@@ -168,74 +168,68 @@ _NEG = ("grayscale, black and white, monochrome, desaturated, dull colors, disto
 # WORSE, not better. Watch worker run.log for "Token indices ... (N > 77)".
 STYLE_PRESETS = {
     "corporate": {
-        "prompt": ("color photograph, professional corporate headshot, tailored charcoal grey "
-                   "business suit, crisp white dress shirt, smooth neutral light grey studio "
-                   "background, soft even softbox lighting, natural true-to-life skin tones, "
-                   "calm confident expression, head and shoulders, sharp focus on the eyes, "
-                   "85mm portrait, ultra realistic, highly detailed"),
+        "prompt": ("RAW color photo, professional corporate headshot of a person, tailored "
+                   "charcoal grey suit, crisp white shirt, smooth neutral grey studio backdrop, "
+                   "soft even softbox light, calm confident look, natural skin texture, sharp "
+                   "focus on the eyes, 85mm, ultra realistic, highly detailed"),
         "negative": _NEG,
     },
     "modern_tech": {
-        "prompt": ("color photograph, professional headshot, smart casual dark blazer over a "
-                   "plain crew-neck top, softly blurred modern office background with gentle "
-                   "bokeh, bright natural window light, friendly confident expression, natural "
-                   "skin tones, head and shoulders, sharp focus, 50mm portrait, ultra realistic, "
-                   "highly detailed"),
+        "prompt": ("RAW color photo, modern professional headshot of a person, smart-casual dark "
+                   "blazer over a crew-neck top, blurred modern office backdrop with soft bokeh, "
+                   "bright natural window light, friendly confident look, natural skin texture, "
+                   "sharp focus on the eyes, 50mm, ultra realistic, highly detailed"),
         "negative": _NEG,
     },
     "warm_friendly": {
-        "prompt": ("color photograph, warm approachable professional headshot, soft light blue "
-                   "shirt or cozy knit sweater in a muted tone, soft cream beige background, "
-                   "warm flattering golden light, genuine subtle smile, natural skin tones, head "
-                   "and shoulders, sharp focus, 85mm portrait, ultra realistic, highly detailed"),
+        "prompt": ("RAW color photo, warm friendly professional headshot of a person, soft "
+                   "light-blue shirt or muted knit sweater, cream beige backdrop, soft golden "
+                   "flattering light, genuine gentle smile, natural skin texture, sharp focus on "
+                   "the eyes, 85mm, ultra realistic, highly detailed"),
         "negative": _NEG,
     },
     "formal_executive": {
-        "prompt": ("color photograph, formal executive portrait, tailored black business suit, "
-                   "white dress shirt, dark conservative tie, deep navy background with a subtle "
-                   "vignette, dramatic soft directional lighting, confident authoritative "
-                   "expression, natural skin tones, head and shoulders, sharp focus, 85mm "
-                   "portrait, editorial, ultra realistic, highly detailed"),
+        "prompt": ("RAW color photo, formal executive portrait of a person, tailored black suit, "
+                   "white shirt, dark tie, deep navy backdrop with a soft vignette, dramatic "
+                   "directional studio light, confident authoritative look, natural skin texture, "
+                   "sharp focus on the eyes, 85mm, editorial, ultra realistic, highly detailed"),
         "negative": _NEG,
     },
     "linkedin_classic": {
-        "prompt": ("color photograph, clean professional LinkedIn headshot, navy blazer over a "
-                   "light open-collar shirt, smooth light blue-grey gradient background, bright "
-                   "even softbox lighting, approachable confident expression, natural skin tones, "
-                   "head and shoulders, sharp focus on the eyes, 85mm portrait, ultra realistic, "
-                   "highly detailed"),
+        "prompt": ("RAW color photo, professional LinkedIn headshot of a person, navy blazer over "
+                   "a light open-collar shirt, smooth blue-grey gradient backdrop, bright even "
+                   "softbox light, approachable confident look, natural skin texture, sharp focus "
+                   "on the eyes, 85mm, ultra realistic, highly detailed"),
         "negative": _NEG,
     },
     "startup_casual": {
-        "prompt": ("color photograph, modern startup headshot, clean solid-color collared shirt "
-                   "or henley, bright airy white background, natural daylight, relaxed genuine "
-                   "smile, contemporary and clean, natural skin tones, head and shoulders, sharp "
-                   "focus, 50mm portrait, ultra realistic, highly detailed"),
+        "prompt": ("RAW color photo, modern startup headshot of a person, clean solid-color "
+                   "collared shirt, bright airy white backdrop, natural daylight, relaxed genuine "
+                   "smile, natural skin texture, sharp focus on the eyes, 50mm, ultra realistic, "
+                   "highly detailed"),
         "negative": _NEG,
     },
     "healthcare": {
-        "prompt": ("color photograph, professional healthcare portrait, clean white medical coat "
-                   "over a collared shirt, bright clinical white background, soft even lighting, "
-                   "warm trustworthy expression, natural skin tones, head and shoulders, sharp "
-                   "focus on the eyes, 85mm portrait, ultra realistic, highly detailed"),
+        "prompt": ("RAW color photo, professional healthcare headshot of a person, clean white "
+                   "medical coat over a collared shirt, bright clinical white backdrop, soft even "
+                   "light, warm trustworthy look, natural skin texture, sharp focus on the eyes, "
+                   "85mm, ultra realistic, highly detailed"),
         "negative": _NEG,
     },
     "academic": {
-        "prompt": ("color photograph, distinguished academic faculty portrait, tweed jacket or "
-                   "smart dark cardigan over a collared shirt, warm softly blurred library "
-                   "background, soft directional light, thoughtful composed expression, natural "
-                   "skin tones, head and shoulders, sharp focus, 85mm portrait, ultra realistic, "
-                   "highly detailed"),
+        "prompt": ("RAW color photo, distinguished academic faculty portrait of a person, tweed "
+                   "jacket or dark cardigan over a collared shirt, warm blurred library backdrop, "
+                   "soft directional light, thoughtful composed look, natural skin texture, sharp "
+                   "focus on the eyes, 85mm, ultra realistic, highly detailed"),
         "negative": _NEG,
     },
     # Tuned to the Edstellar reference: full-colour, navy suit, light-blue shirt,
-    # navy polka-dot tie, pure white studio background, bright even light, glasses kept.
+    # navy tie, pure white studio background, bright even light, glasses kept.
     "edstellar_executive": {
-        "prompt": ("color photograph, professional corporate headshot, dark navy blue suit, "
-                   "light blue dress shirt, navy tie, pure white studio background, soft even "
-                   "studio lighting, natural skin tones, keeps eyeglasses, calm confident "
-                   "expression, head and shoulders, sharp focus, 85mm portrait, realistic, "
-                   "highly detailed"),
+        "prompt": ("RAW color photo, professional corporate headshot of a person, dark navy blue "
+                   "suit, light-blue dress shirt, navy tie, pure white studio backdrop, bright "
+                   "even softbox light, keeps eyeglasses, calm confident look, natural skin "
+                   "texture, sharp focus on the eyes, 85mm, ultra realistic, highly detailed"),
         "negative": ("grayscale, black and white, monochrome, desaturated, dull colors, dark "
                      "background, grey background, distorted, deformed face, warped, asymmetric "
                      "face, bad anatomy, plastic skin, waxy skin, oversharpened, oversaturated, "

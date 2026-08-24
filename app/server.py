@@ -336,16 +336,16 @@ def _sidebar(active: str) -> str:
       <details class=profilebox>
         <summary class=profile>
           <span class=pav>VR</span>
-          <span style="min-width:0"><div class=pnm>Venkata Ramana</div><div class=prl>Edstellar &middot; Admin</div></span>
+          <div style="min-width:0"><div class=pnm>Venkata Ramana</div><div class=prl>Edstellar &middot; Admin</div></div>
           <span class=pcv>{chevron}</span>
         </summary>
         <div class=pmenu>
           <div class=pmhead>
             <span class="pav big">VR</span>
-            <span style="min-width:0">
+            <div style="min-width:0">
               <div class=pnm>Venkata Ramana</div>
               <div class=pmemail>marketing@edstellar.com</div>
-            </span>
+            </div>
           </div>
           <div class=pmstats>
             <div class=pmstat><b>{n_jobs}</b><span>Jobs</span></div>
@@ -705,7 +705,7 @@ def home() -> HTMLResponse:
         return f'<div class=seg>{cells}</div>'
 
     topbar = ('<div class=tt>Create headshots'
-              '<small>Turn ordinary photos into professional headshots. Follow the steps, then click Generate.</small></div>'
+              '<small>Upload photos, pick a style, generate.</small></div>'
               f'<button class="btn gold" form=jobform type=submit>{ICON["spark"]} Generate headshots</button>')
 
     content = f"""
@@ -714,8 +714,7 @@ def home() -> HTMLResponse:
         <div class="stack">
         <div class=panel>
           <h2>Step 1. Add your photos</h2>
-          <p class=hint style="margin:-6px 0 12px">Add the faces you want turned into headshots.
-            One clear, front-facing photo per person gives the best result. Choose how to add them:</p>
+          <p class=hint style="margin:-6px 0 12px">One clear, front-facing photo per person works best.</p>
           <div class=upmode style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap">
             <button type=button class="btn sm on" id=mode-folder onclick="setMode('folder')">A whole folder</button>
             <button type=button class="btn sm" id=mode-files onclick="setMode('files')">One or more files</button>
@@ -737,15 +736,14 @@ def home() -> HTMLResponse:
           </div>
           <div id=thumbs class=thumbs style="display:none;margin-top:12px;grid-template-columns:repeat(auto-fill,minmax(84px,1fr));gap:8px"></div>
           <div id=upstats class=hint style="margin-top:8px;display:none"></div>
-          <p class=hint style="margin:14px 0 0"><b>What to expect:</b> the work runs on a free cloud GPU.
-            The first job in a session takes about 10 to 15 minutes while the AI models download, then only
-            a few seconds per photo. Later jobs are much faster. Your photos are resized and stripped of
-            location data in your browser before upload, so they stay private and upload quickly.</p>
+          <p class=hint style="margin:14px 0 0"><b>What to expect:</b> runs on a free cloud GPU. The first
+            job warms up in a few minutes, then it's seconds per photo. Photos are resized and location-stripped
+            in your browser before upload, so they stay private.</p>
         </div>
           <div class=panel>
             <h2>Step 2. Choose a style</h2>
-            <p class=hint style="margin:-6px 0 12px">The style sets the outfit, background, and lighting of
-              the finished headshot. Filter by category, then pick the look ({len(STYLES)} to choose from).</p>
+            <p class=hint style="margin:-6px 0 12px">Sets the outfit, background, and lighting. Filter by
+              category, then pick one.</p>
             <div class="chips styfilter">{style_filter}</div>
             <div class=styles>{style_rows}</div>
           </div>
@@ -754,21 +752,19 @@ def home() -> HTMLResponse:
         <div class="stack aside">
           <div class=panel>
             <h2>Step 3. Output quality</h2>
-            <p class=hint style="margin:-6px 0 12px">Higher resolution and slower speed give a sharper,
-              more detailed headshot, but take a little longer to render.</p>
+            <p class=hint style="margin:-6px 0 12px">Higher resolution and speed mean sharper results, a little slower.</p>
             <label>Resolution</label>{_seg("resolution", RESOLUTIONS, "2048")}
             <label style="margin-top:16px">Render speed</label>{_seg("speed", SPEEDS, "balanced")}
           </div>
           <div class=panel>
             <h2>Step 4. Finishing touches <span class=faint style="text-transform:none;letter-spacing:0;font-weight:400">(optional)</span></h2>
-            <p class=hint style="margin:-6px 0 12px">Optional extras to polish the result. The defaults are
-              a good starting point, so you can safely leave them as they are.</p>
+            <p class=hint style="margin:-6px 0 12px">Defaults work well, leave them as they are.</p>
             <label class=switch><input type=checkbox name=face_enhance value=1 checked>
-              <span class=track></span><span>Sharpen the face (recommended) - cleaner eyes, skin, and detail</span></label>
+              <span class=track></span><span>Sharpen the face &mdash; cleaner eyes and skin</span></label>
             <label class=switch style="margin-top:12px"><input type=checkbox name=white_background value=1>
-              <span class=track></span><span>Pure white background - the clean, formal corporate look</span></label>
+              <span class=track></span><span>Pure white background &mdash; clean corporate look</span></label>
             <label class=switch style="margin-top:12px"><input type=checkbox name=multi_reference value=1 checked>
-              <span class=track></span><span>Use every photo of a person (recommended) - blends all their photos for a truer likeness</span></label>
+              <span class=track></span><span>Blend all photos of a person &mdash; truer likeness</span></label>
             <label style="margin-top:14px">Custom background <span class=faint>(optional)</span></label>
             <input name=background placeholder="Describe a background, e.g. soft teal, warm grey, office blur">
             <label style="margin-top:14px">Extra details <span class=faint>(optional)</span></label>
@@ -969,7 +965,7 @@ async def create_job(
     speed: str = Form("balanced"),
     face_enhance: str = Form(""),
     white_background: str = Form(""),
-    multi_reference: str = Form("1"),
+    multi_reference: str = Form(""),
     background: str = Form(""),
     custom_prompt: str = Form(""),
     limit: str = Form(""),
