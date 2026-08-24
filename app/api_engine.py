@@ -85,12 +85,24 @@ _IDENTITY = ("Keep the person's face, identity, likeness, bone structure, skin "
              "photo. Do not change their facial features or make them look like a "
              "different person.")
 
-_COMMON = ("Pure white seamless studio background. Bright, even, professional "
-           "softbox studio lighting with soft flattering shadows. Natural, "
-           "true-to-life color and realistic skin texture (not plastic or waxy). "
-           "Sharp focus on the eyes. Head-and-shoulders, centered, facing the "
-           "camera, calm confident neutral expression. Ultra realistic "
+_COMMON = ("Natural, true-to-life color and realistic skin texture (not plastic or "
+           "waxy). Sharp focus on the eyes. Head-and-shoulders, centered, facing "
+           "the camera, calm confident neutral expression. Ultra realistic "
            "photograph, high resolution. Do not add any logo, text, or watermark.")
+
+# Per-category background + lighting scene (Gemini isn't token-limited, so these
+# can be descriptive). Chosen to match each style's worker preset.
+_STYLE_SCENE = {
+    "edstellar_executive": "Place them on a pure white seamless studio background with bright, even softbox lighting.",
+    "corporate": "Place them on a smooth neutral light grey studio background with soft, even softbox lighting.",
+    "formal_executive": "Place them on a deep navy studio background with a subtle vignette and dramatic soft directional lighting.",
+    "linkedin_classic": "Place them on a smooth light blue-grey gradient background with bright, even softbox lighting.",
+    "modern_tech": "Place them in a softly blurred modern office background with gentle bokeh and bright natural window light.",
+    "warm_friendly": "Place them on a soft cream beige background with warm, flattering light.",
+    "startup_casual": "Place them on a bright, airy white background with natural daylight.",
+    "healthcare": "Place them on a bright, clean clinical white background with soft, even lighting.",
+    "academic": "Place them in a warm, softly blurred library background with soft directional light.",
+}
 
 _STYLE_WARDROBE = {
     "edstellar_executive": (
@@ -125,14 +137,19 @@ _STYLE_WARDROBE = {
 def _prompt_for(cfg: dict) -> str:
     style = cfg.get("style_preset", "corporate")
     wardrobe = _STYLE_WARDROBE.get(style, _STYLE_WARDROBE["corporate"])
+    scene = _STYLE_SCENE.get(style, _STYLE_SCENE["corporate"])
+    # A custom background from the user, or the white-background toggle, overrides
+    # the style's default scene.
     bg = (cfg.get("background") or "").strip()
+    if bg:
+        scene = f"Place them on a {bg} background with soft, even lighting."
+    elif cfg.get("white_background") and style != "edstellar_executive":
+        scene = "Place them on a pure white seamless studio background with bright, even softbox lighting."
     extra = (cfg.get("custom_prompt") or "").strip()
     parts = [
         "Transform this photo into a professional corporate headshot portrait.",
-        _IDENTITY, wardrobe, _COMMON,
+        _IDENTITY, wardrobe, scene, _COMMON,
     ]
-    if bg:
-        parts.append(f"Background preference: {bg}.")
     if extra:
         parts.append(extra)
     return " ".join(parts)

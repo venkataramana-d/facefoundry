@@ -152,44 +152,85 @@ def sanitize_user_text(s: str, max_len: int) -> str:
     return cleaned[:max_len]
 
 
+# One shared negative prompt for every style. Kept concise and front-loaded with
+# the anti-grayscale + anti-distortion + anti-artifact terms that matter most,
+# because CLIP only reads the first ~77 tokens (see note on the positives below).
+_NEG = ("grayscale, black and white, monochrome, desaturated, dull colors, distorted, "
+        "deformed face, warped, asymmetric face, bad anatomy, extra fingers, plastic skin, "
+        "waxy skin, oversharpened, oversaturated, blurry, out of focus, low quality, cartoon, "
+        "anime, 3d render, illustration, watermark, text, logo")
+
+# IMPORTANT: SDXL's CLIP text encoder only reads the FIRST 77 TOKENS of a prompt;
+# anything past that is silently dropped. So every positive prompt below is kept
+# short (~40-48 words) and FRONT-LOADS the words that matter most - "color
+# photograph", the wardrobe, and the background - so the colour and outfit never
+# get truncated away. Do NOT lengthen these; longer prompts here make results
+# WORSE, not better. Watch worker run.log for "Token indices ... (N > 77)".
 STYLE_PRESETS = {
     "corporate": {
-        "prompt": "professional corporate headshot, a person, neutral light gray studio background, tailored charcoal business suit, crisp white shirt, soft key light with subtle rim light, sharp focus on eyes, shallow depth of field, high detail skin texture, photorealistic, shot on 85mm lens",
-        "negative": "cartoon, anime, illustration, painting, 3d render, blurry, low quality, distorted, deformed face, extra limbs, watermark, text, logo, oversaturated, harsh shadows",
+        "prompt": ("color photograph, professional corporate headshot, tailored charcoal grey "
+                   "business suit, crisp white dress shirt, smooth neutral light grey studio "
+                   "background, soft even softbox lighting, natural true-to-life skin tones, "
+                   "calm confident expression, head and shoulders, sharp focus on the eyes, "
+                   "85mm portrait, ultra realistic, highly detailed"),
+        "negative": _NEG,
     },
     "modern_tech": {
-        "prompt": "professional headshot, a person, softly blurred modern office background with warm bokeh, smart casual attire crew neck sweater or open collar shirt, natural window light, friendly confident expression, photorealistic, shot on 50mm lens",
-        "negative": "cartoon, anime, illustration, painting, 3d render, blurry face, low quality, distorted, deformed, extra limbs, watermark, text, oversaturated",
+        "prompt": ("color photograph, professional headshot, smart casual dark blazer over a "
+                   "plain crew-neck top, softly blurred modern office background with gentle "
+                   "bokeh, bright natural window light, friendly confident expression, natural "
+                   "skin tones, head and shoulders, sharp focus, 50mm portrait, ultra realistic, "
+                   "highly detailed"),
+        "negative": _NEG,
     },
     "warm_friendly": {
-        "prompt": "warm approachable professional headshot, a person, soft cream beige background, cozy knit sweater in muted tone, golden hour lighting, genuine subtle smile, photorealistic, shot on 85mm lens",
-        "negative": "cartoon, anime, illustration, painting, 3d render, blurry, low quality, distorted face, extra limbs, watermark, text, harsh light, cold tone",
+        "prompt": ("color photograph, warm approachable professional headshot, soft light blue "
+                   "shirt or cozy knit sweater in a muted tone, soft cream beige background, "
+                   "warm flattering golden light, genuine subtle smile, natural skin tones, head "
+                   "and shoulders, sharp focus, 85mm portrait, ultra realistic, highly detailed"),
+        "negative": _NEG,
     },
     "formal_executive": {
-        "prompt": "formal executive portrait, a person, deep navy blue background with subtle vignette, tailored dark suit and tie, dramatic rembrandt lighting, confident authoritative expression, photorealistic, shot on 85mm lens, editorial quality",
-        "negative": "cartoon, anime, illustration, painting, 3d render, blurry, low quality, distorted face, extra limbs, watermark, text, casual, oversaturated",
+        "prompt": ("color photograph, formal executive portrait, tailored black business suit, "
+                   "white dress shirt, dark conservative tie, deep navy background with a subtle "
+                   "vignette, dramatic soft directional lighting, confident authoritative "
+                   "expression, natural skin tones, head and shoulders, sharp focus, 85mm "
+                   "portrait, editorial, ultra realistic, highly detailed"),
+        "negative": _NEG,
     },
     "linkedin_classic": {
-        "prompt": "clean professional LinkedIn headshot, a person, smooth light blue-gray gradient background, business casual blazer over open collar shirt, bright even softbox lighting, approachable confident expression, sharp focus on eyes, photorealistic, shot on 85mm lens",
-        "negative": "cartoon, anime, illustration, painting, 3d render, blurry, low quality, distorted face, extra limbs, watermark, text, harsh shadows, oversaturated",
+        "prompt": ("color photograph, clean professional LinkedIn headshot, navy blazer over a "
+                   "light open-collar shirt, smooth light blue-grey gradient background, bright "
+                   "even softbox lighting, approachable confident expression, natural skin tones, "
+                   "head and shoulders, sharp focus on the eyes, 85mm portrait, ultra realistic, "
+                   "highly detailed"),
+        "negative": _NEG,
     },
     "startup_casual": {
-        "prompt": "modern startup team headshot, a person, bright airy white background, casual t-shirt or henley, natural daylight, relaxed genuine smile, clean and contemporary, photorealistic, shot on 50mm lens",
-        "negative": "cartoon, anime, illustration, painting, 3d render, blurry, low quality, distorted face, extra limbs, watermark, text, formal suit, dark moody",
+        "prompt": ("color photograph, modern startup headshot, clean solid-color collared shirt "
+                   "or henley, bright airy white background, natural daylight, relaxed genuine "
+                   "smile, contemporary and clean, natural skin tones, head and shoulders, sharp "
+                   "focus, 50mm portrait, ultra realistic, highly detailed"),
+        "negative": _NEG,
     },
     "healthcare": {
-        "prompt": "professional healthcare portrait, a person, clean bright clinical white background, white medical coat over collared shirt, soft even lighting, warm trustworthy expression, photorealistic, shot on 85mm lens",
-        "negative": "cartoon, anime, illustration, painting, 3d render, blurry, low quality, distorted face, extra limbs, watermark, text, casual, dark background",
+        "prompt": ("color photograph, professional healthcare portrait, clean white medical coat "
+                   "over a collared shirt, bright clinical white background, soft even lighting, "
+                   "warm trustworthy expression, natural skin tones, head and shoulders, sharp "
+                   "focus on the eyes, 85mm portrait, ultra realistic, highly detailed"),
+        "negative": _NEG,
     },
     "academic": {
-        "prompt": "distinguished academic faculty portrait, a person, muted warm library background softly blurred, tweed jacket or smart cardigan, soft directional light, thoughtful composed expression, photorealistic, shot on 85mm lens",
-        "negative": "cartoon, anime, illustration, painting, 3d render, blurry, low quality, distorted face, extra limbs, watermark, text, neon, oversaturated",
+        "prompt": ("color photograph, distinguished academic faculty portrait, tweed jacket or "
+                   "smart dark cardigan over a collared shirt, warm softly blurred library "
+                   "background, soft directional light, thoughtful composed expression, natural "
+                   "skin tones, head and shoulders, sharp focus, 85mm portrait, ultra realistic, "
+                   "highly detailed"),
+        "negative": _NEG,
     },
     # Tuned to the Edstellar reference: full-colour, navy suit, light-blue shirt,
-    # navy tie, pure white studio background, bright even light, glasses kept.
+    # navy polka-dot tie, pure white studio background, bright even light, glasses kept.
     "edstellar_executive": {
-        # Kept short on purpose: SDXL/CLIP only reads the first 77 tokens, so the
-        # color + wardrobe + white-background words are front-loaded to fit inside it.
         "prompt": ("color photograph, professional corporate headshot, dark navy blue suit, "
                    "light blue dress shirt, navy tie, pure white studio background, soft even "
                    "studio lighting, natural skin tones, keeps eyeglasses, calm confident "

@@ -152,6 +152,15 @@ STYLES = [
     ("academic", "Academic", "Muted library, tweed and cardigan"),
     ("edstellar_executive", "Edstellar Executive", "Navy suit, light-blue shirt, pure white bg"),
 ]
+# Category for each style, used by the filter chips on the new-job page.
+STYLE_CAT = {
+    "corporate": "Corporate", "linkedin_classic": "Corporate",
+    "formal_executive": "Executive", "edstellar_executive": "Executive",
+    "modern_tech": "Creative", "warm_friendly": "Creative", "startup_casual": "Creative",
+    "healthcare": "Medical", "academic": "Academic",
+}
+STYLE_FILTERS = ["All", "Corporate", "Executive", "Creative", "Medical", "Academic"]
+
 IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".bmp"}
 
 # Output resolution options (final saved size; SDXL renders at 1024 then upscales).
@@ -311,13 +320,20 @@ def _sidebar(active: str) -> str:
     if not items:
         items = '<div class="jempty">No jobs yet. Create one to get started.</div>'
 
+    chevron = ('<svg width=16 height=16 viewBox="0 0 24 24" fill=none stroke=currentColor '
+               'stroke-width=2 stroke-linecap=round stroke-linejoin=round><path d="M6 9l6 6 6-6"/></svg>')
     return f"""
     <aside class=sidebar>
-      <a class=brand href="/"><span class=mark>{ICON['logo']}</span><span>FaceFoundry</span></a>
+      <a class=brand href="/"><span class=mark>{ICON['logo']}</span><span>FaceFoundry<span class=sub>Studio</span></span></a>
       <a class="navbtn {'on' if active=='new' else ''}" href="/">{ICON['plus']} New job</a>
       <div class=navlabel>Recent jobs</div>
       <nav class=jlist>{items}</nav>
-      <div class=sidefoot><span class=dot d-ok></span> Free Kaggle GPU · $0 per batch</div>
+      <div class=sidefoot><span class="dot d-ok"></span> Free Kaggle GPU · $0 per batch</div>
+      <div class=profile title="Signed in">
+        <span class=pav>VR</span>
+        <span style="min-width:0"><div class=pnm>Venkata Ramana</div><div class=prl>Edstellar · Admin</div></span>
+        <span class=pcv>{chevron}</span>
+      </div>
     </aside>"""
 
 
@@ -325,20 +341,31 @@ def _shell(title: str, active: str, topbar: str, content: str, extra_head: str =
     return f"""<!doctype html><html lang=en><head><meta charset=utf-8>
 <title>{escape(title)}</title>
 <meta name=viewport content="width=device-width,initial-scale=1">
+<link rel=preconnect href="https://fonts.googleapis.com">
+<link rel=preconnect href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Fraunces:opsz,wght@9..144,500;9..144,600&family=JetBrains+Mono:wght@500;600&display=swap" rel=stylesheet>
 <style>
 :root {{
-  --bg:#eef1f6; --panel:#ffffff; --panel-2:#f4f7fb; --line:#e2e8f1; --line-2:#d2dae6;
-  --fg:#182338; --muted:#576174; --faint:#8592a6; --field:#f7f9fc;
-  --accent:#1e56a0; --accent-2:#17457f; --accent-soft:rgba(30,86,160,.09);
-  --grad:linear-gradient(180deg,#2461ac,#1e56a0);
-  --ok:#177a4a; --ok-soft:rgba(23,122,74,.10); --bad:#b42318; --bad-soft:rgba(180,35,24,.08);
-  --shadow:0 1px 2px rgba(20,33,61,.04),0 3px 10px rgba(20,33,61,.06);
-  --r:12px;
+  /* Premium corporate light theme: deep navy ink, refined blue accent, warm
+     bronze highlight, layered soft shadows. */
+  --bg:#eef2f7; --bg-2:#e6ecf4; --panel:#ffffff; --panel-2:#f4f7fb;
+  --line:#e5ebf3; --line-2:#d4dde9; --fg:#132340; --muted:#586580; --faint:#8b98ad; --field:#f7f9fc;
+  --accent:#1b4f8f; --accent-2:#123c6e; --accent-soft:rgba(27,79,143,.08); --accent-line:rgba(27,79,143,.22);
+  --gold:#b07d2b; --gold-soft:rgba(176,125,43,.12);
+  --grad:linear-gradient(135deg,#255ca6 0%,#173f73 100%);
+  --grad-gold:linear-gradient(135deg,#c79a45,#a8781f);
+  --ok:#157a47; --ok-soft:rgba(21,122,71,.10); --bad:#b42318; --bad-soft:rgba(180,35,24,.08);
+  --shadow:0 1px 2px rgba(19,35,64,.05),0 2px 6px rgba(19,35,64,.05);
+  --shadow-lg:0 4px 12px rgba(19,35,64,.07),0 12px 32px rgba(19,35,64,.09);
+  --ring:0 0 0 3px var(--accent-soft);
+  --r:14px;
 }}
 * {{ box-sizing:border-box; }}
 html,body {{ height:100%; }}
-body {{ margin:0; background:var(--bg); color:var(--fg);
-  font:15px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif; }}
+body {{ margin:0; color:var(--fg);
+  background:linear-gradient(180deg,var(--bg) 0%,var(--bg-2) 100%); background-attachment:fixed;
+  font:15px/1.55 "Inter",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  -webkit-font-smoothing:antialiased; text-rendering:optimizeLegibility; }}
 a {{ color:inherit; text-decoration:none; }}
 svg {{ display:block; }}
 .dot {{ width:8px; height:8px; border-radius:50%; flex:none; display:inline-block; }}
@@ -348,22 +375,32 @@ svg {{ display:block; }}
 
 /* ---- app shell ---- */
 .app {{ display:flex; min-height:100dvh; }}
-.sidebar {{ width:266px; flex:none; background:var(--panel); border-right:1px solid var(--line);
-  padding:18px 14px; display:flex; flex-direction:column; gap:6px; position:sticky; top:0; height:100dvh; }}
-.brand {{ display:flex; align-items:center; gap:11px; font-weight:700; font-size:17px; letter-spacing:-.3px; padding:6px 8px 16px; }}
-.brand .mark {{ display:grid; place-items:center; width:34px; height:34px; border-radius:10px; background:var(--grad); color:#fff; }}
+.sidebar {{ width:252px; flex:none; background:linear-gradient(180deg,#0f1d38,#0b1730); color:#b7c4de;
+  border-right:1px solid rgba(255,255,255,.06); padding:16px 13px; display:flex; flex-direction:column; gap:3px; position:sticky; top:0; height:100dvh; }}
+.brand {{ display:flex; align-items:center; gap:10px; font-weight:600; font-size:18px; letter-spacing:-.3px; padding:6px 8px 16px; font-family:"Fraunces",Georgia,serif; color:#fff; }}
+.brand .mark {{ display:grid; place-items:center; width:36px; height:36px; border-radius:10px; background:var(--grad-gold); color:#0d1a34;
+  font-weight:800; position:relative; }}
+.brand .mark svg {{ width:20px; height:20px; }}
+.brand .sub {{ display:block; font-size:9.5px; font-family:"Inter",sans-serif; letter-spacing:.15em; text-transform:uppercase; color:#6c7d9c; font-weight:600; margin-top:1px; }}
 .navbtn {{ display:flex; align-items:center; gap:10px; font-weight:600; padding:11px 12px; border-radius:11px;
-  background:var(--grad); color:#fff; box-shadow:0 6px 18px rgba(124,92,255,.3); }}
+  background:var(--grad); color:#fff; box-shadow:0 6px 16px rgba(0,0,0,.28); transition:filter .15s,transform .06s; }}
+.navbtn:hover {{ filter:brightness(1.1); }} .navbtn:active {{ transform:translateY(1px); }}
 .navbtn svg {{ width:18px; height:18px; }}
-.navbtn.ghost {{ background:var(--field); color:var(--fg); box-shadow:none; }}
-.navlabel {{ font-size:11px; text-transform:uppercase; letter-spacing:.6px; color:var(--faint); padding:16px 10px 6px; }}
+.navbtn.ghost {{ background:rgba(255,255,255,.06); color:#c7d2e6; box-shadow:none; }}
+.navlabel {{ font-size:10px; text-transform:uppercase; letter-spacing:.14em; color:#63748f; padding:16px 10px 6px; font-weight:600; }}
 .jlist {{ display:flex; flex-direction:column; gap:2px; overflow-y:auto; flex:1; margin:0 -4px; padding:0 4px; }}
-.jitem {{ display:grid; grid-template-columns:auto 1fr auto; align-items:center; gap:9px; padding:9px 10px; border-radius:9px; transition:background .12s; }}
-.jitem:hover {{ background:var(--panel-2); }}
-.ji-name {{ font-size:13.5px; font-weight:500; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }}
-.ji-meta {{ font-size:11px; color:var(--faint); font-variant-numeric:tabular-nums; }}
-.jempty {{ color:var(--faint); font-size:13px; padding:10px; }}
-.sidefoot {{ display:flex; align-items:center; gap:8px; font-size:12px; color:var(--muted); padding:12px 10px 4px; border-top:1px solid var(--line); margin-top:6px; }}
+.jitem {{ display:grid; grid-template-columns:auto 1fr auto; align-items:center; gap:9px; padding:9px 10px; border-radius:9px; transition:background .12s; color:#b7c4de; }}
+.jitem:hover {{ background:rgba(255,255,255,.06); }}
+.ji-name {{ font-size:13px; font-weight:500; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }}
+.ji-meta {{ font-size:10.5px; color:#7688a5; font-variant-numeric:tabular-nums; font-family:"JetBrains Mono",monospace; }}
+.jempty {{ color:#6c7d9c; font-size:12.5px; padding:10px; }}
+.profile {{ display:flex; align-items:center; gap:10px; padding:9px; border-radius:12px; background:rgba(255,255,255,.05); border:1px solid rgba(255,255,255,.08); margin-top:6px; cursor:pointer; transition:background .12s; }}
+.profile:hover {{ background:rgba(255,255,255,.09); }}
+.profile .pav {{ width:34px; height:34px; border-radius:9px; background:var(--grad); color:#fff; display:grid; place-items:center; font-weight:700; font-size:12.5px; flex:none; }}
+.profile .pnm {{ font-size:12.5px; font-weight:600; color:#fff; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }}
+.profile .prl {{ font-size:10.5px; color:#6c7d9c; }}
+.profile .pcv {{ margin-left:auto; color:#6c7d9c; flex:none; }}
+.sidefoot {{ display:flex; align-items:center; gap:8px; font-size:11px; color:#6c7d9c; padding:10px 6px 2px; }}
 
 .workspace {{ flex:1; min-width:0; display:flex; flex-direction:column; }}
 .topbar {{ position:sticky; top:0; z-index:10; display:flex; align-items:center; justify-content:space-between; gap:12px 16px;
@@ -415,13 +452,15 @@ input::placeholder {{ color:var(--faint); }}
 input:focus,select:focus {{ outline:none; border-color:var(--accent); box-shadow:0 0 0 3px var(--accent-soft); }}
 .field-row {{ display:grid; grid-template-columns:repeat(auto-fit,minmax(110px,1fr)); gap:14px; }}
 .btn {{ display:inline-flex; align-items:center; justify-content:center; gap:8px; font:inherit; font-weight:600; cursor:pointer;
-  border:1px solid transparent; border-radius:11px; padding:12px 20px; min-height:46px; background:var(--grad); color:#fff;
-  box-shadow:0 6px 18px rgba(124,92,255,.3); transition:transform .06s,filter .15s; }}
+  border:1px solid transparent; border-radius:12px; padding:12px 22px; min-height:46px; background:var(--grad); color:#fff;
+  box-shadow:0 6px 16px rgba(23,63,115,.26); transition:transform .06s,filter .15s,box-shadow .15s; }}
 .btn:hover {{ filter:brightness(1.08); }} .btn:active {{ transform:translateY(1px); }}
 .btn.ghost {{ background:var(--field); color:var(--fg); border-color:var(--line-2); box-shadow:none; font-weight:500; }}
 .btn.ghost:hover {{ background:var(--panel-2); filter:none; }}
 .btn.danger {{ color:var(--bad); }} .btn.danger:hover {{ background:var(--bad-soft); border-color:var(--bad); }}
 .btn.ok {{ background:linear-gradient(135deg,#22b47a,#3ecf8e); box-shadow:0 6px 18px rgba(62,207,142,.28); }}
+.btn.gold {{ background:var(--grad-gold); color:#0d1a34; box-shadow:0 6px 16px rgba(168,120,31,.32); font-weight:800; }}
+.btn.gold:hover {{ filter:brightness(1.05); }}
 .btn.sm {{ padding:9px 14px; min-height:40px; font-size:14px; border-radius:9px; }}
 .btn svg {{ width:18px; height:18px; }}
 .actions {{ display:flex; gap:11px; flex-wrap:wrap; }}
@@ -433,7 +472,13 @@ input:focus,select:focus {{ outline:none; border-color:var(--accent); box-shadow
 .empty {{ text-align:center; color:var(--muted); padding:44px 12px; }}
 
 /* ---- new-job split layout ---- */
-.split {{ display:grid; grid-template-columns:1.05fr .95fr; gap:20px; align-items:start; }}
+.split {{ display:grid; grid-template-columns:1fr 340px; gap:20px; align-items:start; }}
+.split .aside {{ position:sticky; top:86px; }}
+.jobsummary {{ background:linear-gradient(160deg,#12224a,#0d1a34); color:#fff; border-radius:var(--r); padding:18px; box-shadow:var(--shadow-lg); }}
+.jsrow {{ display:flex; justify-content:space-between; align-items:center; font-size:12.5px; padding:5px 0; color:#b7c4de; }}
+.jsrow b {{ color:#fff; font-weight:600; }}
+.jsmeta {{ text-align:center; font-size:11px; color:#8ea0c4; margin-top:9px; }}
+@media (max-width:980px) {{ .split {{ grid-template-columns:1fr; }} .split .aside {{ position:static; }} }}
 .dropzone {{ position:relative; border:1.5px dashed var(--line-2); border-radius:var(--r); background:var(--field);
   min-height:280px; display:grid; place-items:center; text-align:center; padding:26px; transition:border-color .15s,background .15s; }}
 .dropzone.hot {{ border-color:var(--accent); background:var(--accent-soft); }}
@@ -453,8 +498,16 @@ input:focus,select:focus {{ outline:none; border-color:var(--accent); box-shadow
 .sw2 {{ background:linear-gradient(135deg,#d97706,#fbbf24); }} .sw3 {{ background:linear-gradient(135deg,#1e3a8a,#6d28d9); }}
 .sw4 {{ background:linear-gradient(135deg,#0a66c2,#7ea9d6); }} .sw5 {{ background:linear-gradient(135deg,#e2e8f0,#a3bffa); }}
 .sw6 {{ background:linear-gradient(135deg,#0891b2,#e6f6fa); }} .sw7 {{ background:linear-gradient(135deg,#78350f,#b08968); }}
-.sw8 {{ background:linear-gradient(135deg,#1e3a8a,#dbeafe); }}
-.srow .name {{ font-weight:600; }} .srow .desc {{ font-size:12px; color:var(--muted); }}
+.sw8 {{ background:linear-gradient(135deg,#0b1f4d,#4b74c4); }}
+.srow .stymeta {{ display:flex; flex-direction:column; gap:2px; min-width:0; }}
+.srow .name {{ font-weight:700; font-size:13.5px; }} .srow .desc {{ font-size:12px; color:var(--muted); }}
+.srow .stag {{ align-self:flex-start; margin-top:3px; font-size:9.5px; font-weight:700; letter-spacing:.03em; text-transform:uppercase;
+  color:var(--gold); background:var(--gold-soft); padding:2px 7px; border-radius:5px; }}
+.styfilter {{ margin-bottom:14px; }}
+.styfilter .chip {{ cursor:pointer; }}
+.styfilter .chip.on {{ background:var(--fg); color:#fff; border-color:var(--fg); }}
+.styles {{ grid-template-columns:repeat(2,1fr); }}
+@media (max-width:1100px) {{ .styles {{ grid-template-columns:1fr; }} }}
 
 /* ---- status dashboard ---- */
 .dash {{ display:grid; grid-template-columns:280px 1fr; gap:20px; align-items:start; }}
@@ -532,7 +585,7 @@ pre.err {{ white-space:pre-wrap; word-break:break-word; background:#fbf1f0; bord
   .app {{ flex-direction:column; }}
   .sidebar {{ width:auto; height:auto; position:static; flex-direction:row; flex-wrap:wrap; align-items:center; gap:8px; padding:12px 16px; }}
   .sidebar .navbtn {{ margin-left:auto; }}
-  .jlist {{ display:none; }} .navlabel,.sidefoot {{ display:none; }} .brand {{ padding:2px 4px; }}
+  .jlist {{ display:none; }} .navlabel,.sidefoot,.profile {{ display:none; }} .brand {{ padding:2px 4px; }}
   .split,.dash {{ grid-template-columns:1fr; }}
   .content {{ padding:20px 16px; }}
   .topbar {{ height:auto; min-height:60px; padding:12px 16px; flex-wrap:wrap; gap:10px; }}
@@ -582,11 +635,17 @@ def healthz() -> JSONResponse:
 def home() -> HTMLResponse:
     style_rows = ""
     for i, (val, name, desc) in enumerate(STYLES):
-        checked = "checked" if i == 0 else ""
-        style_rows += (f'<label class=srow><input type=radio name=style value="{val}" {checked}>'
+        checked = "checked" if val == "edstellar_executive" else ""
+        cat = STYLE_CAT.get(val, "Corporate")
+        tag = '<span class=stag>Recommended</span>' if val == "edstellar_executive" else ""
+        style_rows += (f'<label class=srow data-cat="{escape(cat)}"><input type=radio name=style value="{val}" {checked}>'
                        f'<span class=box><span class="swatch sw{i}"></span>'
-                       f'<span><span class=name>{escape(name)}</span><br>'
-                       f'<span class=desc>{escape(desc)}</span></span></span></label>')
+                       f'<span class=stymeta><span class=name>{escape(name)}</span>'
+                       f'<span class=desc>{escape(desc)}</span>{tag}</span></span></label>')
+    style_filter = "".join(
+        f'<span class="chip {"on" if i == 0 else ""}" data-filter="{escape(f)}" '
+        f'onclick="filterStyles(this,\'{escape(f)}\')">{escape(f)}</span>'
+        for i, f in enumerate(STYLE_FILTERS))
 
     def _seg(field: str, opts: list, default_val: str) -> str:
         cells = ""
@@ -597,13 +656,14 @@ def home() -> HTMLResponse:
                       f'<span class=segh>{escape(hint)}</span></span></label>')
         return f'<div class=seg>{cells}</div>'
 
-    topbar = ('<div class=tt>Create a new job'
-              '<small>Turn ordinary photos into professional headshots. Follow the 5 steps, then click Generate.</small></div>'
-              f'<button class=btn form=jobform type=submit>{ICON["spark"]} Generate headshots</button>')
+    topbar = ('<div class=tt>Create headshots'
+              '<small>Turn ordinary photos into professional headshots. Follow the steps, then click Generate.</small></div>'
+              f'<button class="btn gold" form=jobform type=submit>{ICON["spark"]} Generate headshots</button>')
 
     content = f"""
     <form id=jobform action="/jobs" method="post" enctype="multipart/form-data">
       <div class=split>
+        <div class="stack">
         <div class=panel>
           <h2>Step 1. Add your photos</h2>
           <p class=hint style="margin:-6px 0 12px">Add the faces you want turned into headshots.
@@ -634,14 +694,16 @@ def home() -> HTMLResponse:
             a few seconds per photo. Later jobs are much faster. Your photos are resized and stripped of
             location data in your browser before upload, so they stay private and upload quickly.</p>
         </div>
-
-        <div class="stack">
           <div class=panel>
             <h2>Step 2. Choose a style</h2>
             <p class=hint style="margin:-6px 0 12px">The style sets the outfit, background, and lighting of
-              the finished headshot. Pick the look that suits your team ({len(STYLES)} to choose from).</p>
+              the finished headshot. Filter by category, then pick the look ({len(STYLES)} to choose from).</p>
+            <div class="chips styfilter">{style_filter}</div>
             <div class=styles>{style_rows}</div>
           </div>
+        </div>
+
+        <div class="stack aside">
           <div class=panel>
             <h2>Step 3. Output quality</h2>
             <p class=hint style="margin:-6px 0 12px">Higher resolution and slower speed give a sharper,
@@ -675,6 +737,13 @@ def home() -> HTMLResponse:
               <div><label>Seed</label><input name=seed type=number value=42></div>
             </div>
           </details>
+          <div class=jobsummary>
+            <div class=jsrow><span>Photos</span><b id=sum-photos>none yet</b></div>
+            <div class=jsrow><span>Style</span><b id=sum-style>Edstellar Executive</b></div>
+            <div class=jsrow><span>Output</span><b id=sum-output>High &middot; Balanced</b></div>
+            <button class="btn gold" form=jobform type=submit style="width:100%;margin-top:12px">{ICON["spark"]} Generate headshots</button>
+            <div class=jsmeta>Runs on your free cloud GPU</div>
+          </div>
         </div>
       </div>
     </form>
@@ -704,6 +773,7 @@ def home() -> HTMLResponse:
 
       function renderThumbs() {{
         thumbs.innerHTML = '';
+        if (typeof updateSummary === 'function') updateSummary();
         if (!selected.length) {{
           thumbs.style.display = 'none'; upstats.style.display = 'none'; dzc.textContent = '';
           return;
@@ -725,6 +795,33 @@ def home() -> HTMLResponse:
       }}
 
       window.removeAt = function(i) {{ selected.splice(i,1); renderThumbs(); }};
+
+      // Filter the style cards by category chip.
+      window.filterStyles = function(el, cat) {{
+        document.querySelectorAll('.styfilter .chip').forEach(c => c.classList.toggle('on', c===el));
+        document.querySelectorAll('.styles .srow').forEach(row => {{
+          row.style.display = (cat==='All' || row.dataset.cat===cat) ? '' : 'none';
+        }});
+      }};
+
+      // Keep the live summary card in sync with the current selections.
+      function updateSummary() {{
+        var ph = document.getElementById('sum-photos');
+        if (ph) ph.textContent = selected.length ? (selected.length + ' ready') : 'none yet';
+        var st = document.querySelector('input[name=style]:checked');
+        var so = document.getElementById('sum-style');
+        if (so && st) {{ var nm = st.closest('.srow').querySelector('.name'); if (nm) so.textContent = nm.textContent; }}
+        function segName(field) {{
+          var el = document.querySelector('input[name='+field+']:checked');
+          return el ? el.closest('.segopt').querySelector('.segn').textContent : '';
+        }}
+        var oo = document.getElementById('sum-output');
+        if (oo) oo.textContent = (segName('resolution')||'High') + ' \\u00b7 ' + (segName('speed')||'Balanced');
+      }}
+      document.addEventListener('change', function(e) {{
+        if (e.target && (e.target.name==='style' || e.target.name==='resolution' || e.target.name==='speed')) updateSummary();
+      }});
+      updateSummary();
 
       function isImage(f) {{ return f && (f.type||'').startsWith('image/'); }}
 
