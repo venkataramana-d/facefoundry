@@ -635,7 +635,10 @@ input:focus,select:focus {{ outline:none; border-color:var(--accent); box-shadow
   color:#fff; background:rgba(0,0,0,.6); padding:3px 8px; border-radius:6px; }}
 .tile.approved {{ border-color:var(--ok); box-shadow:0 0 0 1.5px var(--ok); }}
 .tile.rejected {{ opacity:.4; }}
-.tile .ctl {{ display:flex; gap:9px; padding:12px 13px; }} .tile .ctl .btn {{ flex:1; }}
+.tile .ctl {{ display:flex; gap:9px; padding:12px 13px 0; }} .tile .ctl .btn {{ flex:1; }}
+.saverow {{ display:flex; gap:8px; padding:10px 13px 13px; }}
+.saverow .savename {{ flex:1; min-width:0; padding:9px 11px; font-size:13px; border-radius:9px; }}
+.saverow .btn {{ flex:none; }}
 .failbox {{ display:grid; place-items:center; aspect-ratio:2/1; color:var(--bad); background:var(--bad-soft); font-size:13px; text-align:center; padding:12px; }}
 pre.err {{ white-space:pre-wrap; word-break:break-word; background:#fbf1f0; border:1px solid #f0d5d2; border-radius:12px;
   padding:15px; color:var(--bad); font-size:13px; max-height:340px; overflow:auto; }}
@@ -1251,7 +1254,12 @@ def _review_page(j: dict) -> str:
             ctl = (f'<div class=ctl>'
                    f'<button class="btn ok sm" onclick="review(\'{stem}\',\'approved\')">{ICON["check"]} Keep</button>'
                    f'<button class="btn ghost sm" onclick="review(\'{stem}\',\'rejected\')">{ICON["x"]} Reject</button>'
-                   f'<a class="btn ghost sm" href="/jobs/{jid}/edit/{stem}" title="Image settings">{ICON["edit"]}</a></div>')
+                   f'<a class="btn ghost sm" href="/jobs/{jid}/edit/{stem}" title="Image settings">{ICON["edit"]}</a></div>'
+                   f'<div class=saverow>'
+                   f'<input class=savename id="nm-{escape(stem)}" value="{escape(stem)}" '
+                   f'spellcheck=false title="Rename before saving" aria-label="File name">'
+                   f'<button class="btn sm" onclick="saveAs(\'{escape(stem)}\')" title="Save with this name">{ICON["download"]} Save</button>'
+                   f'</div>')
         else:
             media = f'<div class=failbox>{ICON["alert"]}&nbsp;{escape(r.get("error", "failed"))}</div>'
             ctl = ''
@@ -1304,6 +1312,15 @@ def _review_page(j: dict) -> str:
       t.classList.remove('approved','rejected'); t.classList.add(decision);
       setAppCount(); toast(decision==='approved'?'Kept '+stem:'Rejected '+stem);
     }}
+    // Save one headshot under the name typed in its rename box.
+    window.saveAs = function(stem) {{
+      var el = document.getElementById('nm-'+stem);
+      var v = ((el && el.value) ? el.value : stem).trim() || stem;
+      var a = document.createElement('a');
+      a.href = "/jobs/{jid}/download/"+encodeURIComponent(stem)+"?name="+encodeURIComponent(v);
+      document.body.appendChild(a); a.click(); a.remove();
+      toast('Saved '+v);
+    }};
     async function bulk(decision) {{
       await fetch("/jobs/{jid}/review_bulk", {{method:'POST', headers:{{'Content-Type':'application/x-www-form-urlencoded'}},
         body:'decision='+decision}});
@@ -1779,11 +1796,16 @@ def download(job_id: str, scope: str = "approved"):
 
 
 @app.get("/jobs/{job_id}/download/{stem}")
-def download_one(job_id: str, stem: str):
-    """Download a single generated headshot as a file attachment."""
+def download_one(job_id: str, stem: str, name: str = ""):
+    """Download a single generated headshot as a file attachment. An optional
+    ?name= lets the user save it under a custom filename (e.g. the person's
+    name), sanitized to a safe basename."""
     p = _output_path(job_id, stem)
     if p and p.is_file():
-        return FileResponse(p, media_type="image/jpeg", filename=f"{stem}.jpg")
+        safe = re.sub(r"[^A-Za-z0-9._\- ]", "_", (name or stem)).strip()[:120] or stem
+        if safe.lower().endswith(".jpg"):
+            safe = safe[:-4]
+        return FileResponse(p, media_type="image/jpeg", filename=f"{safe}.jpg")
     return JSONResponse({"error": "not found"}, status_code=404)
 
 
