@@ -639,7 +639,7 @@ def make_processor(cfg, pipe, face_app, draw_kps, device):
                     restored_img = Image.fromarray(cv2.cvtColor(restored, cv2.COLOR_BGR2RGB))
                     if restored_img.size != result.size:
                         restored_img = restored_img.resize(result.size, Image.LANCZOS)
-                    result = Image.blend(result, restored_img, 0.55)
+                    result = Image.blend(result, restored_img, 0.45)
             except Exception as e:
                 print(f"[enhance] restore failed for this image, using original: {e}", flush=True)
         # Optional pure-white background. Fully guarded.

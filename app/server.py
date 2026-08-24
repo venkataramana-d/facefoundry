@@ -1358,7 +1358,8 @@ _EDITOR_BODY = """
     <div class=ed-sec>
       <h3>Crop and frame</h3>
       <div class=chips id=aspects>
-        <span class="chip on" data-r="1">1:1</span>
+        <span class="chip on" data-r="full">Full</span>
+        <span class=chip data-r="1">1:1</span>
         <span class=chip data-r="0.8">4:5</span>
         <span class=chip data-r="0.75">3:4</span>
       </div>
@@ -1406,7 +1407,8 @@ _EDITOR_BODY = """
   var img = new Image(); img.crossOrigin = 'anonymous';
   var fg = null, bgRemoved = false, logo = null;
   var logoPos = {x:0.70, y:0.05};
-  var st = {r:1, zoom:1, panX:0, panY:0, brightness:100, contrast:100, saturation:100, warmth:0, bgcolor:'#ffffff', logoscale:0.18, logoop:1};
+  var st = {r:1, full:true, zoom:1, panX:0, panY:0, brightness:100, contrast:100, saturation:100, warmth:0, bgcolor:'#ffffff', logoscale:0.18, logoop:1};
+  function srcR(){ var s=img; try{ if(fg) s=fg; }catch(e){} var w=s.naturalWidth||s.width, h=s.naturalHeight||s.height; return (w&&h)?w/h:1; }
 
   function outDims(size){ return st.r>=1 ? {w:size, h:Math.round(size/st.r)} : {w:Math.round(size*st.r), h:size}; }
   function cropRect(sw, sh){
@@ -1444,7 +1446,7 @@ _EDITOR_BODY = """
   }
   function render(){ drawTo(cv, 560); }
 
-  img.onload = render;
+  img.onload = function(){ if(st.full) st.r = srcR(); render(); };
   img.onerror = function(){ document.getElementById('bgstatus').textContent = 'Could not load the source image.'; };
   img.src = SRC;
 
@@ -1461,7 +1463,8 @@ _EDITOR_BODY = """
   var aspects = document.getElementById('aspects');
   aspects.addEventListener('click', function(e){ if(!e.target.dataset.r) return;
     [].forEach.call(aspects.children, function(c){ c.classList.remove('on'); });
-    e.target.classList.add('on'); st.r = +e.target.dataset.r; st.panX=0; st.panY=0; render(); });
+    e.target.classList.add('on'); var v=e.target.dataset.r; st.full=(v==='full');
+    st.r = st.full ? srcR() : +v; st.panX=0; st.panY=0; render(); });
 
   // drag to pan the image, or move the logo when the drag starts on it
   var drag = null;
@@ -1544,7 +1547,8 @@ _BATCH_BODY = """
     <div class=ed-sec>
       <h3>Crop and frame</h3>
       <div class=chips id=aspects>
-        <span class="chip on" data-r="1">1:1</span>
+        <span class="chip on" data-r="full">Full</span>
+        <span class=chip data-r="1">1:1</span>
         <span class=chip data-r="0.8">4:5</span>
         <span class=chip data-r="0.75">3:4</span>
       </div>
@@ -1587,7 +1591,8 @@ _BATCH_BODY = """
   var cv = document.getElementById('cv');
   var img = new Image(); img.crossOrigin='anonymous';
   var logo = null, logoPos = {x:0.70, y:0.05};
-  var st = {r:1, zoom:1, panX:0, panY:0, brightness:100, contrast:100, saturation:100, warmth:0, bgcolor:'#ffffff', logoscale:0.18, logoop:1};
+  var st = {r:1, full:true, zoom:1, panX:0, panY:0, brightness:100, contrast:100, saturation:100, warmth:0, bgcolor:'#ffffff', logoscale:0.18, logoop:1};
+  function srcR(){ var s=img; try{ if(fg) s=fg; }catch(e){} var w=s.naturalWidth||s.width, h=s.naturalHeight||s.height; return (w&&h)?w/h:1; }
 
   function outDims(size){ return st.r>=1 ? {w:size, h:Math.round(size/st.r)} : {w:Math.round(size*st.r), h:size}; }
   function cropRect(sw, sh){
@@ -1613,7 +1618,7 @@ _BATCH_BODY = """
   function loadImg(src){ return new Promise(function(res,rej){ var im=new Image(); im.crossOrigin='anonymous';
     im.onload=function(){res(im);}; im.onerror=rej; im.src=src; }); }
 
-  if(STEMS.length){ img.onload=render; img.src="/jobs/"+JID+"/image/output/"+STEMS[0];
+  if(STEMS.length){ img.onload=function(){ if(st.full) st.r=srcR(); render(); }; img.src="/jobs/"+JID+"/image/output/"+STEMS[0];
     document.getElementById('previewnote').textContent='Preview: '+STEMS[0]; }
 
   function bind(id,key,div){ var el=document.getElementById(id);
@@ -1625,7 +1630,7 @@ _BATCH_BODY = """
   var aspects=document.getElementById('aspects');
   aspects.addEventListener('click', function(e){ if(!e.target.dataset.r) return;
     [].forEach.call(aspects.children,function(c){c.classList.remove('on');}); e.target.classList.add('on');
-    st.r=+e.target.dataset.r; st.panX=0; st.panY=0; render(); });
+    var v=e.target.dataset.r; st.full=(v==='full'); st.r = st.full?srcR():+v; st.panX=0; st.panY=0; render(); });
   var drag=null;
   function ptr(e){ var r=cv.getBoundingClientRect(), sc=cv.width/r.width; return {x:(e.clientX-r.left)*sc, y:(e.clientY-r.top)*sc}; }
   cv.addEventListener('pointerdown', function(e){ cv.setPointerCapture(e.pointerId); var p=ptr(e);
