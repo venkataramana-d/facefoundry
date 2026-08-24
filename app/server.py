@@ -177,6 +177,27 @@ SPEEDS = [
 ]
 SPEED_STEPS = {"fast": 20, "balanced": 30, "best": 45}
 
+# Output framing: square (1:1) or a portrait 4:5 headshot crop.
+ASPECTS = [
+    ("square", "Square", "1:1"),
+    ("portrait", "Portrait", "4:5"),
+]
+
+# Brand packs: one-click bundles of style + settings for a consistent company
+# look. Applied client-side (they just set the existing form controls), so each
+# pack reuses one of the per-style prompts - no separate prompt needed.
+# fields: key, label, description, style, resolution, speed, aspect, face_enhance, white_bg
+BRAND_PACKS = [
+    ("edstellar", "Edstellar Corporate", "Navy suit, white bg, portrait",
+     "edstellar_executive", "2048", "balanced", "portrait", True, True),
+    ("corporate", "Corporate Standard", "Charcoal suit, grey studio",
+     "corporate", "2048", "balanced", "portrait", True, False),
+    ("startup", "Startup", "Relaxed, bright white",
+     "startup_casual", "2048", "balanced", "square", True, True),
+    ("healthcare", "Healthcare", "White coat, clinical",
+     "healthcare", "2048", "balanced", "portrait", True, True),
+]
+
 # The status stepper (kept in sync with runner._STAGE_STEP).
 STEPS = [
     ("Prepare images", "Packaging your photos"),
@@ -457,7 +478,7 @@ svg {{ display:block; }}
 .topbar .actions {{ justify-content:flex-end; align-items:center; flex:1 1 auto; }}
 .topbar .actions form {{ display:flex; }}
 .topbar .tt small {{ display:block; font-size:12.5px; font-weight:400; color:var(--muted); letter-spacing:0; margin-top:1px; }}
-.content {{ padding:30px; max-width:1000px; width:100%; }}
+.content {{ padding:30px; max-width:1600px; width:100%; }}
 
 /* ---- primitives ---- */
 h2 {{ font-size:12px; text-transform:uppercase; letter-spacing:.7px; color:var(--faint); font-weight:600; margin:0 0 14px; }}
@@ -556,6 +577,14 @@ input:focus,select:focus {{ outline:none; border-color:var(--accent); box-shadow
 .styfilter .chip.on {{ background:var(--fg); color:#fff; border-color:var(--fg); }}
 .styles {{ grid-template-columns:repeat(2,1fr); }}
 @media (max-width:1100px) {{ .styles {{ grid-template-columns:1fr; }} }}
+/* brand packs */
+.bpanel {{ margin-bottom:20px; }}
+.bpacks {{ display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:10px; }}
+.bpack {{ text-align:left; border:1.5px solid var(--line-2); border-radius:12px; padding:12px 14px; background:var(--panel); cursor:pointer; font:inherit; transition:.15s; }}
+.bpack:hover {{ border-color:var(--accent-line); background:var(--panel-2); }}
+.bpack.on {{ border-color:var(--accent); background:var(--accent-soft); }}
+.bpack b {{ display:block; font-size:13.5px; font-weight:700; color:var(--fg); }}
+.bpack span {{ font-size:11.5px; color:var(--muted); }}
 
 /* ---- status dashboard ---- */
 .dash {{ display:grid; grid-template-columns:280px 1fr; gap:20px; align-items:start; }}
@@ -694,6 +723,11 @@ def home() -> HTMLResponse:
         f'<span class="chip {"on" if i == 0 else ""}" data-filter="{escape(f)}" '
         f'onclick="filterStyles(this,\'{escape(f)}\')">{escape(f)}</span>'
         for i, f in enumerate(STYLE_FILTERS))
+    brand_cards = "".join(
+        f'<button type=button class=bpack data-style="{s}" data-res="{r}" data-speed="{sp}" '
+        f'data-aspect="{asp}" data-face="{int(fe)}" data-white="{int(wb)}" onclick="applyPack(this)">'
+        f'<b>{escape(label)}</b><span>{escape(desc)}</span></button>'
+        for _key, label, desc, s, r, sp, asp, fe, wb in BRAND_PACKS)
 
     def _seg(field: str, opts: list, default_val: str) -> str:
         cells = ""
@@ -710,6 +744,11 @@ def home() -> HTMLResponse:
 
     content = f"""
     <form id=jobform action="/jobs" method="post" enctype="multipart/form-data">
+      <div class="panel bpanel">
+        <h2>Quick start with a brand pack <span class=faint style="text-transform:none;letter-spacing:0;font-weight:400">(optional)</span></h2>
+        <p class=hint style="margin:-6px 0 12px">One click sets the style, framing, and finishing for a consistent company look.</p>
+        <div class=bpacks>{brand_cards}</div>
+      </div>
       <div class=split>
         <div class="stack">
         <div class=panel>
@@ -755,6 +794,7 @@ def home() -> HTMLResponse:
             <p class=hint style="margin:-6px 0 12px">Higher resolution and speed mean sharper results, a little slower.</p>
             <label>Resolution</label>{_seg("resolution", RESOLUTIONS, "2048")}
             <label style="margin-top:16px">Render speed</label>{_seg("speed", SPEEDS, "balanced")}
+            <label style="margin-top:16px">Framing</label>{_seg("aspect", ASPECTS, "square")}
           </div>
           <div class=panel>
             <h2>Step 4. Finishing touches <span class=faint style="text-transform:none;letter-spacing:0;font-weight:400">(optional)</span></h2>
@@ -839,6 +879,24 @@ def home() -> HTMLResponse:
       }}
 
       window.removeAt = function(i) {{ selected.splice(i,1); renderThumbs(); }};
+
+      // Apply a brand pack: set the style + settings controls in one click.
+      window.applyPack = function(el) {{
+        var d = el.dataset;
+        function setRadio(name, val) {{
+          var r = document.querySelector('input[name='+name+'][value="'+val+'"]');
+          if (r) r.checked = true;
+        }}
+        setRadio('style', d.style); setRadio('resolution', d.res);
+        setRadio('speed', d.speed); setRadio('aspect', d.aspect);
+        var fe = document.querySelector('input[name=face_enhance]'); if (fe) fe.checked = d.face === '1';
+        var wb = document.querySelector('input[name=white_background]'); if (wb) wb.checked = d.white === '1';
+        document.querySelectorAll('.bpack').forEach(b => b.classList.toggle('on', b === el));
+        // reset the style filter to All so the chosen style is visible
+        document.querySelectorAll('.styfilter .chip').forEach((c, i) => c.classList.toggle('on', i === 0));
+        document.querySelectorAll('.styles .srow').forEach(row => row.style.display = '');
+        updateSummary();
+      }};
 
       // Filter the style cards by category chip.
       window.filterStyles = function(el, cat) {{
@@ -963,6 +1021,7 @@ async def create_job(
     style: str = Form("corporate"),
     resolution: str = Form("2048"),
     speed: str = Form("balanced"),
+    aspect: str = Form("square"),
     face_enhance: str = Form(""),
     white_background: str = Form(""),
     multi_reference: str = Form(""),
@@ -1023,6 +1082,7 @@ async def create_job(
         "face_enhance": bool(face_enhance) or is_edstellar,
         "white_background": bool(white_background) or is_edstellar,
         "multi_reference": bool(multi_reference),
+        "aspect": aspect if aspect in {"square", "portrait"} else "square",
         "background": background.strip()[:80], "custom_prompt": custom_prompt.strip()[:200],
     }
     db.create_job(job_id, style, cfg)

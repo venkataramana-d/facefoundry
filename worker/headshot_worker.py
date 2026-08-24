@@ -126,6 +126,7 @@ def load_job() -> dict:
     # Use Real-ESRGAN for hi-res upscale instead of Lanczos+UnsharpMask when
     # output_size > img_size. Falls back to Lanczos if unavailable.
     cfg.setdefault("realesrgan_upscale", True)
+    cfg.setdefault("aspect", "square")         # "square" (1:1) or "portrait" (4:5 headshot crop)
     return cfg
 
 
@@ -653,6 +654,15 @@ def make_processor(cfg, pipe, face_app, draw_kps, device):
             else:
                 result = result.resize((out_size, out_size), Image.LANCZOS)
                 result = result.filter(ImageFilter.UnsharpMask(radius=2.2, percent=70, threshold=2))
+        # Optional portrait framing: crop the square result to a 4:5 headshot
+        # aspect (centered on the face, which InstantID keeps centred) - no
+        # distortion, just a tighter, more editorial head-and-shoulders crop.
+        if cfg.get("aspect") == "portrait":
+            w, h = result.size
+            tw = int(round(h * 4 / 5))
+            if 0 < tw < w:
+                left = (w - tw) // 2
+                result = result.crop((left, 0, left + tw, h))
         result.save(dst_path, "JPEG", quality=95, subsampling=0)
         return True, None
 
