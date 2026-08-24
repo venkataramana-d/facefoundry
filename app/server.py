@@ -322,6 +322,10 @@ def _sidebar(active: str) -> str:
 
     chevron = ('<svg width=16 height=16 viewBox="0 0 24 24" fill=none stroke=currentColor '
                'stroke-width=2 stroke-linecap=round stroke-linejoin=round><path d="M6 9l6 6 6-6"/></svg>')
+    # A few real stats for the profile menu (kept minimal).
+    _all = db.list_jobs()
+    n_jobs = len(_all)
+    n_shots = sum((j["ok"] or 0) for j in _all)
     return f"""
     <aside class=sidebar>
       <a class=brand href="/"><span class=mark>{ICON['logo']}</span><span>FaceFoundry<span class=sub>Studio</span></span></a>
@@ -329,11 +333,29 @@ def _sidebar(active: str) -> str:
       <div class=navlabel>Recent jobs</div>
       <nav class=jlist>{items}</nav>
       <div class=sidefoot><span class="dot d-ok"></span> Free Kaggle GPU · $0 per batch</div>
-      <div class=profile title="Signed in">
-        <span class=pav>VR</span>
-        <span style="min-width:0"><div class=pnm>Venkata Ramana</div><div class=prl>Edstellar · Admin</div></span>
-        <span class=pcv>{chevron}</span>
-      </div>
+      <details class=profilebox>
+        <summary class=profile>
+          <span class=pav>VR</span>
+          <span style="min-width:0"><div class=pnm>Venkata Ramana</div><div class=prl>Edstellar &middot; Admin</div></span>
+          <span class=pcv>{chevron}</span>
+        </summary>
+        <div class=pmenu>
+          <div class=pmhead>
+            <span class="pav big">VR</span>
+            <span style="min-width:0">
+              <div class=pnm>Venkata Ramana</div>
+              <div class=pmemail>marketing@edstellar.com</div>
+            </span>
+          </div>
+          <div class=pmstats>
+            <div class=pmstat><b>{n_jobs}</b><span>Jobs</span></div>
+            <div class=pmstat><b>{n_shots}</b><span>Headshots</span></div>
+          </div>
+          <div class=pmi><span>Plan</span><b>Edstellar Admin</b></div>
+          <div class=pmi><span>Cost</span><b class=pmok>Free &middot; $0.00</b></div>
+          <a class=pmlink href="/">{ICON['plus']} New job</a>
+        </div>
+      </details>
     </aside>"""
 
 
@@ -394,12 +416,38 @@ svg {{ display:block; }}
 .ji-name {{ font-size:13px; font-weight:500; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }}
 .ji-meta {{ font-size:10.5px; color:#7688a5; font-variant-numeric:tabular-nums; font-family:"JetBrains Mono",monospace; }}
 .jempty {{ color:#6c7d9c; font-size:12.5px; padding:10px; }}
-.profile {{ display:flex; align-items:center; gap:10px; padding:9px; border-radius:12px; background:rgba(255,255,255,.05); border:1px solid rgba(255,255,255,.08); margin-top:6px; cursor:pointer; transition:background .12s; }}
+.profilebox {{ position:relative; margin-top:6px; }}
+.profilebox > summary {{ list-style:none; cursor:pointer; }}
+.profilebox > summary::-webkit-details-marker {{ display:none; }}
+.profile {{ display:flex; align-items:center; gap:10px; padding:9px; border-radius:12px; background:rgba(255,255,255,.05); border:1px solid rgba(255,255,255,.08); transition:background .12s; }}
 .profile:hover {{ background:rgba(255,255,255,.09); }}
-.profile .pav {{ width:34px; height:34px; border-radius:9px; background:var(--grad); color:#fff; display:grid; place-items:center; font-weight:700; font-size:12.5px; flex:none; }}
-.profile .pnm {{ font-size:12.5px; font-weight:600; color:#fff; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }}
-.profile .prl {{ font-size:10.5px; color:#6c7d9c; }}
-.profile .pcv {{ margin-left:auto; color:#6c7d9c; flex:none; }}
+.pav {{ width:34px; height:34px; border-radius:9px; background:var(--grad); color:#fff; display:grid; place-items:center; font-weight:700; font-size:12.5px; flex:none; }}
+.pnm {{ font-size:12.5px; font-weight:600; color:#fff; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }}
+.prl {{ font-size:10.5px; color:#6c7d9c; }}
+.pcv {{ margin-left:auto; color:#6c7d9c; flex:none; transition:transform .18s; }}
+.profilebox[open] .pcv {{ transform:rotate(180deg); }}
+.pmenu {{ position:absolute; left:0; width:290px; bottom:calc(100% + 8px); background:#16264a; border:1px solid rgba(255,255,255,.13);
+  border-radius:14px; padding:13px; box-shadow:0 16px 40px rgba(0,0,0,.5); z-index:20; max-height:78vh; overflow-y:auto; }}
+.pmhead {{ display:flex; align-items:flex-start; gap:11px; padding-bottom:12px; margin-bottom:12px; border-bottom:1px solid rgba(255,255,255,.09); }}
+.pav.big {{ width:42px; height:42px; border-radius:11px; font-size:15px; }}
+.pmhead .pnm {{ display:flex; align-items:center; gap:7px; font-size:13.5px; }}
+.pmplan {{ font-size:9px; font-weight:800; letter-spacing:.06em; color:#0d1a34; background:var(--grad-gold); padding:2px 6px; border-radius:5px; }}
+.pmemail {{ font-size:11px; color:#8ea0c4; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; margin-top:2px; }}
+.pmstatus {{ display:flex; align-items:center; gap:6px; font-size:10.5px; color:#5ec98f; margin-top:4px; }}
+.pmstatus .dot {{ box-shadow:0 0 7px currentColor; }}
+.pmstats {{ display:grid; grid-template-columns:repeat(2,1fr); gap:7px; margin-bottom:13px; }}
+.pmstat {{ background:rgba(255,255,255,.05); border:1px solid rgba(255,255,255,.05); border-radius:10px; padding:10px 8px; }}
+.pmstat b {{ display:block; font-size:19px; font-weight:700; color:#fff; font-variant-numeric:tabular-nums; line-height:1.1; }}
+.pmstat span {{ font-size:10px; color:#7f90ad; }}
+.pmlbl {{ font-size:9.5px; text-transform:uppercase; letter-spacing:.14em; color:#63748f; font-weight:700; margin:12px 2px 5px; }}
+.pmi {{ display:flex; justify-content:space-between; align-items:center; font-size:12px; color:#9fb0cc; padding:5px 2px; border-bottom:1px solid rgba(255,255,255,.04); }}
+.pmi:last-of-type {{ border-bottom:0; }}
+.pmi b {{ color:#fff; font-weight:600; }}
+.pmi b.pmok {{ color:#5ec98f; }}
+.pmlink {{ display:flex; align-items:center; justify-content:center; gap:7px; margin-top:12px; padding:10px; border-radius:10px;
+  background:var(--grad); color:#fff; font-size:12.5px; font-weight:600; }}
+.pmlink svg {{ width:15px; height:15px; }}
+.pmlink:hover {{ filter:brightness(1.12); }}
 .sidefoot {{ display:flex; align-items:center; gap:8px; font-size:11px; color:#6c7d9c; padding:10px 6px 2px; }}
 
 .workspace {{ flex:1; min-width:0; display:flex; flex-direction:column; }}
@@ -585,7 +633,7 @@ pre.err {{ white-space:pre-wrap; word-break:break-word; background:#fbf1f0; bord
   .app {{ flex-direction:column; }}
   .sidebar {{ width:auto; height:auto; position:static; flex-direction:row; flex-wrap:wrap; align-items:center; gap:8px; padding:12px 16px; }}
   .sidebar .navbtn {{ margin-left:auto; }}
-  .jlist {{ display:none; }} .navlabel,.sidefoot,.profile {{ display:none; }} .brand {{ padding:2px 4px; }}
+  .jlist {{ display:none; }} .navlabel,.sidefoot,.profilebox {{ display:none; }} .brand {{ padding:2px 4px; }}
   .split,.dash {{ grid-template-columns:1fr; }}
   .content {{ padding:20px 16px; }}
   .topbar {{ height:auto; min-height:60px; padding:12px 16px; flex-wrap:wrap; gap:10px; }}
