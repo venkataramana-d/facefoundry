@@ -644,7 +644,9 @@ pre.err {{ white-space:pre-wrap; word-break:break-word; background:#fbf1f0; bord
   padding:15px; color:var(--bad); font-size:13px; max-height:340px; overflow:auto; }}
 /* image editor */
 .editor {{ display:grid; grid-template-columns:1fr 330px; gap:20px; align-items:start; }}
-.canvas-wrap {{ background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:18px; display:grid; place-items:center; box-shadow:var(--shadow); min-height:440px; }}
+.canvas-wrap {{ background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:18px; display:grid; place-items:center; box-shadow:var(--shadow); min-height:440px;
+  position:sticky; top:20px; align-self:start; max-height:calc(100dvh - 40px); }}
+.canvas-wrap #cv {{ max-height:calc(100dvh - 80px); }}
 #cv {{ max-width:100%; max-height:72vh; border-radius:8px; cursor:grab; touch-action:none; background:#fff; box-shadow:0 2px 12px rgba(20,33,61,.12); }}
 #cv:active {{ cursor:grabbing; }}
 .ed-sec {{ border-top:1px solid var(--line); padding:16px 0; }}
@@ -659,7 +661,7 @@ pre.err {{ white-space:pre-wrap; word-break:break-word; background:#fbf1f0; bord
 .chip {{ padding:7px 13px; border:1px solid var(--line-2); border-radius:9px; font-size:13px; cursor:pointer; background:var(--field); user-select:none; }}
 .chip.on {{ border-color:var(--accent); background:var(--accent-soft); color:var(--accent); font-weight:600; }}
 .ed-status {{ font-size:12px; color:var(--muted); margin-top:8px; min-height:16px; }}
-@media (max-width:900px) {{ .editor {{ grid-template-columns:1fr; }} }}
+@media (max-width:900px) {{ .editor {{ grid-template-columns:1fr; }} .canvas-wrap {{ position:static; max-height:none; }} }}
 
 @media (max-width:900px) {{
   .app {{ flex-direction:column; }}
