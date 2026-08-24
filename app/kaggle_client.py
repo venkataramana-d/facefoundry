@@ -461,9 +461,15 @@ os.environ["HF_HOME"] = str(OUT / "huggingface")
 def sh(c): print("$", c, flush=True); subprocess.run(c, shell=True, check=False)
 sh("pip install -q 'numpy<2' huggingface_hub==0.22.2")
 from huggingface_hub import snapshot_download, hf_hub_download
-# SDXL base (the big ~10GB one) into the HF cache layout
-snapshot_download("stabilityai/stable-diffusion-xl-base-1.0",
-                  allow_patterns=["*.json","*.txt","*.safetensors","*.model"])
+# Base checkpoint: RealVisXL V4.0 (the model the worker actually loads) into the
+# HF cache layout. Disk-safe: keep only the default diffusers safetensors +
+# configs; skip the ~6.6GB single-file checkpoint and fp16/fp32 duplicates so we
+# don't overflow Kaggle's working disk. from_pretrained(..., float16) with no
+# variant loads exactly these default files.
+print("[builder] downloading RealVisXL V4.0...", flush=True)
+snapshot_download("SG161222/RealVisXL_V4.0",
+                  ignore_patterns=["*.ckpt","*.pt","RealVisXL_V4.0.safetensors",
+                                   "*.fp16.safetensors","*.png","*.jpg","*.jpeg","*.webp"])
 # InstantID controlnet + ip-adapter into checkpoints/
 ck = OUT / "checkpoints"; ck.mkdir(parents=True, exist_ok=True)
 hf_hub_download("InstantX/InstantID", "ControlNetModel/config.json", local_dir=str(ck))
