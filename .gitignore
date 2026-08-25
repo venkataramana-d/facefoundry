@@ -25,3 +25,5 @@ phase0_output/
 *.log
 .DS_Store
 Thumbs.db
+
+outputs/

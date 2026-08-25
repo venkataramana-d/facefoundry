@@ -36,8 +36,9 @@ from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import (FileResponse, HTMLResponse, JSONResponse,
                                RedirectResponse, Response, StreamingResponse)
 
-from . import db, runner
+from . import db, reporting, runner
 from .kaggle_client import JOBS_DIR, cancel_kernel, slugify_job_id
+from .styles import DEFAULT_STYLE
 
 try:
     from PIL import Image, UnidentifiedImageError
@@ -47,8 +48,8 @@ except ImportError:  # Pillow is optional at import time; upload path re-checks
 
 # Upload safety limits (per POST to /jobs). Tuned for phone photos + typical batch.
 MAX_FILE_BYTES = 25 * 1024 * 1024       # 25 MB per photo
-MAX_FILES = 50                          # hard cap per job
-MAX_TOTAL_BYTES = 400 * 1024 * 1024     # 400 MB total per job
+MAX_FILES = 100                         # hard cap per job (spec §15: batch of 100)
+MAX_TOTAL_BYTES = 600 * 1024 * 1024     # 600 MB total per job (100 x large photos)
 
 _SAFE_ID_RE = re.compile(r"^[a-z0-9][a-z0-9\-_]{0,63}$")
 _SAFE_STEM_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._\-]{0,127}$")
@@ -142,6 +143,7 @@ async def _security(request, call_next):
     return await call_next(request)
 
 STYLES = [
+    ("corporate_trainer_profile", "Corporate Trainer Profile", "Charcoal suit, white shirt, light-grey tie · 35:45"),
     ("corporate", "Corporate", "Charcoal suit, neutral studio grey"),
     ("modern_tech", "Modern Tech", "Smart-casual, soft office bokeh"),
     ("warm_friendly", "Warm & Friendly", "Cozy tone, golden-hour light"),
@@ -154,6 +156,7 @@ STYLES = [
 ]
 # Category for each style, used by the filter chips on the new-job page.
 STYLE_CAT = {
+    "corporate_trainer_profile": "Corporate",
     "corporate": "Corporate", "linkedin_classic": "Corporate",
     "formal_executive": "Executive", "edstellar_executive": "Executive",
     "modern_tech": "Creative", "warm_friendly": "Creative", "startup_casual": "Creative",
@@ -177,17 +180,23 @@ SPEEDS = [
 ]
 SPEED_STEPS = {"fast": 20, "balanced": 30, "best": 45}
 
-# Output framing: square (1:1) or a portrait 4:5 headshot crop.
+# Output framing. portrait_3545 renders natively at 896x1152 (== 35:45), the
+# default for the Corporate Trainer Profile style (spec §11).
 ASPECTS = [
+    ("portrait_3545", "Profile", "35:45"),
     ("square", "Square", "1:1"),
     ("portrait", "Portrait", "4:5"),
 ]
+# Aspect keys create_job accepts (widened for the new 35:45 render).
+VALID_ASPECTS = {"square", "portrait", "portrait_3545"}
 
 # Brand packs: one-click bundles of style + settings for a consistent company
 # look. Applied client-side (they just set the existing form controls), so each
 # pack reuses one of the per-style prompts - no separate prompt needed.
 # fields: key, label, description, style, resolution, speed, aspect, face_enhance, white_bg
 BRAND_PACKS = [
+    ("trainer", "Corporate Trainer", "Charcoal suit, light studio, 35:45",
+     "corporate_trainer_profile", "2048", "balanced", "portrait_3545", True, False),
     ("edstellar", "Edstellar Corporate", "Navy suit, white bg, portrait",
      "edstellar_executive", "2048", "balanced", "portrait", True, True),
     ("corporate", "Corporate Standard", "Charcoal suit, grey studio",
@@ -304,6 +313,17 @@ def _results(job_id: str) -> dict | None:
     return None
 
 
+def _job_batch_id(job_id: str) -> str | None:
+    """The batch tag stored in a job's config, if any (spec §15/§25)."""
+    j = db.get_job(job_id)
+    if not j:
+        return None
+    try:
+        return (json.loads(j.get("config") or "{}") or {}).get("batch_id")
+    except Exception:
+        return None
+
+
 def _elapsed(created_at: str | None) -> int:
     if not created_at:
         return 0
@@ -351,6 +371,7 @@ def _sidebar(active: str) -> str:
     <aside class=sidebar>
       <a class=brand href="/"><span class=mark>{ICON['logo']}</span><span>FaceFoundry<span class=sub>Studio</span></span></a>
       <a class="navbtn {'on' if active=='new' else ''}" href="/">{ICON['plus']} New job</a>
+      <a class="navbtn ghost {'on' if active=='dashboard' else ''}" href="/dashboard" style="margin-top:4px">{ICON['grid']} Dashboard</a>
       <div class=navlabel>Recent jobs</div>
       <nav class=jlist>{items}</nav>
       <div class=sidefoot><span class="dot d-ok"></span> Free Kaggle GPU · $0 per batch</div>
@@ -674,6 +695,11 @@ pre.err {{ white-space:pre-wrap; word-break:break-word; background:#fbf1f0; bord
   .topbar .actions {{ width:100%; }}
   .gallery {{ grid-template-columns:repeat(auto-fill,minmax(240px,1fr)); }}
 }}
+.cfgchips {{ display:flex; gap:8px; flex-wrap:wrap; }}
+.cfgchip {{ padding:6px 11px; border:1px solid var(--line-2); border-radius:9px; font-size:12.5px;
+  background:var(--field); color:var(--muted); }}
+.cfgchip b {{ color:var(--fg); }}
+.valist {{ margin:6px 0 0; padding-left:18px; font-size:13px; color:var(--muted); }}
 @media (max-width:560px) {{
   .content {{ padding:16px 12px; }}
   .seg {{ grid-auto-flow:row; grid-auto-columns:auto; }}
@@ -717,9 +743,9 @@ def healthz() -> JSONResponse:
 def home() -> HTMLResponse:
     style_rows = ""
     for i, (val, name, desc) in enumerate(STYLES):
-        checked = "checked" if val == "edstellar_executive" else ""
+        checked = "checked" if val == DEFAULT_STYLE else ""
         cat = STYLE_CAT.get(val, "Corporate")
-        tag = '<span class=stag>Recommended</span>' if val == "edstellar_executive" else ""
+        tag = '<span class=stag>Recommended</span>' if val == DEFAULT_STYLE else ""
         style_rows += (f'<label class=srow data-cat="{escape(cat)}"><input type=radio name=style value="{val}" {checked}>'
                        f'<span class=box><span class="swatch sw{i}"></span>'
                        f'<span class=stymeta><span class=name>{escape(name)}</span>'
@@ -799,7 +825,7 @@ def home() -> HTMLResponse:
             <p class=hint style="margin:-6px 0 12px">Higher resolution and speed mean sharper results, a little slower.</p>
             <label>Resolution</label>{_seg("resolution", RESOLUTIONS, "2048")}
             <label style="margin-top:16px">Render speed</label>{_seg("speed", SPEEDS, "balanced")}
-            <label style="margin-top:16px">Framing</label>{_seg("aspect", ASPECTS, "square")}
+            <label style="margin-top:16px">Framing</label>{_seg("aspect", ASPECTS, "portrait_3545")}
           </div>
           <div class=panel>
             <h2>Step 4. Finishing touches <span class=faint style="text-transform:none;letter-spacing:0;font-weight:400">(optional)</span></h2>
@@ -828,7 +854,7 @@ def home() -> HTMLResponse:
           </details>
           <div class=jobsummary>
             <div class=jsrow><span>Photos</span><b id=sum-photos>none yet</b></div>
-            <div class=jsrow><span>Style</span><b id=sum-style>Edstellar Executive</b></div>
+            <div class=jsrow><span>Style</span><b id=sum-style>Corporate Trainer Profile</b></div>
             <div class=jsrow><span>Output</span><b id=sum-output>High &middot; Balanced</b></div>
             <button class="btn gold" form=jobform type=submit style="width:100%;margin-top:12px">{ICON["spark"]} Generate headshots</button>
             <div class=jsmeta>Runs on your free cloud GPU</div>
@@ -1018,6 +1044,54 @@ def home() -> HTMLResponse:
 
 
 # ============================================================================
+# Batch dashboard (spec §27)
+# ============================================================================
+@app.get("/dashboard", response_class=HTMLResponse)
+def dashboard() -> HTMLResponse:
+    jobs = db.list_jobs(limit=500)
+    agg = reporting.dashboard_totals(jobs)
+    remaining = max(0, agg["total"] - agg["processed"])
+
+    def stat(label, val, cls=""):
+        return (f'<div class="stat {cls}"><div class=stat-n>{val}</div>'
+                f'<div class=stat-l>{escape(label)}</div></div>')
+
+    cards = (stat("Total images", agg["total"]) + stat("Processed", agg["processed"])
+             + stat("Approved", agg["approved"], "ok") + stat("Review", agg["review"])
+             + stat("Rejected", agg["rejected"]) + stat("Failed", agg["failed"], "bad")
+             + stat("Remaining", remaining))
+
+    rows = ""
+    for b in agg["batches"]:
+        cls = {"COMPLETED": "ok", "PROCESSING": "run", "FAILED": "bad"}.get(b["status"], "")
+        rows += (f'<tr><td><a href="/jobs/{escape(b["job"])}">{escape(b["job"])}</a></td>'
+                 f'<td>{b["total"]}</td>'
+                 f'<td><span class="pill {cls}">{escape(b["status"])}</span></td></tr>')
+    if not rows:
+        rows = '<tr><td colspan=3 class=faint>No batches yet.</td></tr>'
+
+    extra = """<style>
+    .dashgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:22px}
+    .stat{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px;box-shadow:var(--shadow)}
+    .stat-n{font-size:30px;font-weight:800;font-variant-numeric:tabular-nums;letter-spacing:-1px}
+    .stat.ok .stat-n{color:var(--ok)} .stat.bad .stat-n{color:var(--bad)}
+    .stat-l{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--faint);font-weight:600;margin-top:4px}
+    table.batches{width:100%;border-collapse:collapse;background:var(--panel);border:1px solid var(--line);border-radius:14px;overflow:hidden}
+    table.batches th,table.batches td{text-align:left;padding:12px 16px;border-bottom:1px solid var(--line);font-size:14px}
+    table.batches th{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--faint)}
+    .pill{padding:3px 10px;border-radius:999px;font-size:11px;font-weight:600;background:var(--field);border:1px solid var(--line-2)}
+    .pill.ok{background:var(--ok-soft);color:var(--ok)} .pill.bad{background:var(--bad-soft);color:var(--bad)}
+    .pill.run{background:var(--accent-soft);color:var(--accent)}
+    </style>"""
+    topbar = ('<div class=tt>Dashboard<small>Progress across all batches</small></div>')
+    content = (f'<div class=dashgrid>{cards}</div>'
+               '<div class=panel style="padding:0;overflow:hidden">'
+               '<table class=batches><thead><tr><th>Batch / job</th><th>Images</th>'
+               f'<th>Status</th></tr></thead><tbody>{rows}</tbody></table></div>')
+    return HTMLResponse(_shell("Dashboard · FaceFoundry", "dashboard", topbar, content, extra))
+
+
+# ============================================================================
 # Create job
 # ============================================================================
 @app.post("/jobs")
@@ -1034,6 +1108,7 @@ async def create_job(
     custom_prompt: str = Form(""),
     limit: str = Form(""),
     job_name: str = Form(""),
+    batch: str = Form(""),
     identity: float = Form(0.8),
     adapter: float = Form(0.8),
     guidance: float = Form(5.0),
@@ -1048,14 +1123,26 @@ async def create_job(
 
     up_dir = JOBS_DIR / job_id / "uploads"
     up_dir.mkdir(parents=True, exist_ok=True)
+    # Batch validation report (spec §16): count valid / invalid / duplicate and
+    # keep the reasons so nothing is silently discarded - surfaced on the job page.
     saved = 0
     total_bytes = 0
+    seen_stems: set[str] = set()
+    invalid: list[dict] = []
+    duplicate: list[str] = []
     for f in incoming:
         name = Path(f.filename or "").name
-        if not name or Path(name).suffix.lower() not in IMAGE_EXTS:
+        if not name:
+            continue
+        if Path(name).suffix.lower() not in IMAGE_EXTS:
+            invalid.append({"name": name, "reason": "unsupported format"})
             continue
         data = await f.read()
-        if len(data) == 0 or len(data) > MAX_FILE_BYTES:
+        if len(data) == 0:
+            invalid.append({"name": name, "reason": "empty file"})
+            continue
+        if len(data) > MAX_FILE_BYTES:
+            invalid.append({"name": name, "reason": "over 25 MB"})
             continue
         total_bytes += len(data)
         if total_bytes > MAX_TOTAL_BYTES:
@@ -1065,9 +1152,14 @@ async def create_job(
             try:
                 Image.open(io.BytesIO(data)).verify()
             except (UnidentifiedImageError, Exception):
+                invalid.append({"name": name, "reason": "corrupt image"})
                 continue
         # Force the stem into our safe charset so downstream lookups can't glob-leak.
         stem = re.sub(r"[^A-Za-z0-9._\-]", "_", Path(name).stem)[:120] or f"img{saved}"
+        if stem in seen_stems:
+            duplicate.append(name)
+            continue
+        seen_stems.add(stem)
         ext = Path(name).suffix.lower()
         (up_dir / f"{stem}{ext}").write_bytes(data)
         saved += 1
@@ -1076,19 +1168,27 @@ async def create_job(
 
     out_size = int(resolution) if resolution in {"1024", "2048", "4096"} else 2048
     steps = SPEED_STEPS.get(speed, 30)
-    # The Edstellar Executive preset is opinionated: always pure white background +
-    # face enhance so it matches the reference in one click.
+    # Opinionated presets. The Corporate Trainer Profile master style (spec §7)
+    # forces 35:45 framing + gentle face enhance, and turns OFF multi-reference
+    # embedding averaging: a 100-image batch is 100 DIFFERENT people, so averaging
+    # their faces together would blend identities (spec §5 identity preservation).
     is_edstellar = style == "edstellar_executive"
+    is_trainer = style == "corporate_trainer_profile"
+    if is_trainer:
+        aspect = "portrait_3545"
     cfg = {
         "job_id": job_id, "input_mode": "images", "style_preset": style,
+        "batch_id": (batch.strip()[:40] or None),
         "limit": int(limit) if limit.strip().isdigit() else None,
         "img_size": 1024, "output_size": out_size, "num_steps": steps, "guidance": guidance,
         "identity_scale": identity, "adapter_scale": adapter, "seed_base": seed,
-        "face_enhance": bool(face_enhance) or is_edstellar,
+        "face_enhance": bool(face_enhance) or is_edstellar or is_trainer,
         "white_background": bool(white_background) or is_edstellar,
-        "multi_reference": bool(multi_reference),
-        "aspect": aspect if aspect in {"square", "portrait"} else "square",
+        "multi_reference": bool(multi_reference) and not is_trainer,
+        "aspect": aspect if aspect in VALID_ASPECTS else "square",
         "background": background.strip()[:80], "custom_prompt": custom_prompt.strip()[:200],
+        "validation": {"selected": len(incoming), "valid": saved,
+                       "invalid": invalid, "duplicate": duplicate},
     }
     db.create_job(job_id, style, cfg)
     runner.start_job(job_id, up_dir, cfg)
@@ -1240,6 +1340,12 @@ def _review_page(j: dict) -> str:
     res = _results(jid) or {}
     reviews = db.get_reviews(jid)
     items = res.get("results", [])
+    try:
+        cfg = json.loads(j.get("config") or "{}") or {}
+    except Exception:
+        cfg = {}
+    # Per-image state incl. attempt count + MANUAL REVIEW flag (spec §19, §21).
+    pi = {r["stem"]: r for r in reporting.per_image(jid)}
 
     tiles = ""
     for r in items:
@@ -1248,6 +1354,7 @@ def _review_page(j: dict) -> str:
         decision = reviews.get(stem, "")
         cls = f" {decision}" if decision in ("approved", "rejected") else ""
         badge = _badge("done") if ok else _badge("failed")
+        state = (pi.get(stem) or {}).get("state", "")
         if ok:
             media = (f'<div class=pair>'
                      f'<figure><img loading=lazy src="/jobs/{jid}/image/input/{stem}" alt="original"><figcaption>before</figcaption></figure>'
@@ -1263,7 +1370,12 @@ def _review_page(j: dict) -> str:
                    f'<button class="btn sm" onclick="saveAs(\'{escape(stem)}\')" title="Save with this name">{ICON["download"]} Save</button>'
                    f'</div>')
         else:
-            media = f'<div class=failbox>{ICON["alert"]}&nbsp;{escape(r.get("error", "failed"))}</div>'
+            att = (pi.get(stem) or {}).get("attempts", 1)
+            manual = state == reporting.S_MANUAL
+            note = (f' &middot; MANUAL REVIEW REQUIRED (after {att} attempts)' if manual
+                    else f' &middot; attempt {att}')
+            media = (f'<div class=failbox>{ICON["alert"]}&nbsp;{escape(r.get("error", "failed"))}'
+                     f'<br><span style="font-size:11px;opacity:.8">{note}</span></div>')
             ctl = ''
         tiles += (f'<div class="tile{cls}" id="t-{stem}" data-stem="{escape(stem)}"><div class=head>'
                   f'<span style="font-weight:600;font-size:13px">{escape(stem)}</span>{badge}</div>{media}{ctl}</div>')
@@ -1272,12 +1384,43 @@ def _review_page(j: dict) -> str:
     approved_n = sum(1 for d in reviews.values() if d == "approved")
     # re-run same faces with a different style
     style_opts = "".join(f'<option value="{v}">{escape(n)}</option>' for v, n, _ in STYLES)
+
+    # Active configuration (spec §13 - "clearly show which configuration is active").
+    style_name = next((n for v, n, _ in STYLES if v == cfg.get("style_preset")), cfg.get("style_preset", "?"))
+    asp_name = next((n for v, n, _ in ASPECTS if v == cfg.get("aspect")), cfg.get("aspect", "?"))
+    cfg_chips = "".join(
+        f'<span class=cfgchip><b>{escape(str(v))}</b> {escape(k)}</span>' for k, v in [
+            ("style", style_name), ("framing", asp_name),
+            ("resolution", f'{cfg.get("output_size", "?")}px'),
+            ("identity", cfg.get("identity_scale", "?")),
+            ("multi-ref", "on" if cfg.get("multi_reference") else "off"),
+        ])
+    # Validation report (spec §16).
+    val = cfg.get("validation") or {}
+    val_panel = ""
+    if val:
+        n_inv = len(val.get("invalid", [])); n_dup = len(val.get("duplicate", []))
+        detail = ""
+        if n_inv or n_dup:
+            rows = "".join(f'<li>{escape(x.get("name",""))} — {escape(x.get("reason",""))}</li>'
+                           for x in val.get("invalid", []))
+            rows += "".join(f'<li>{escape(x)} — duplicate filename</li>' for x in val.get("duplicate", []))
+            detail = f'<ul class=valist>{rows}</ul>'
+        val_panel = (f'<div class=panel style="margin-bottom:14px"><h2>Batch validation</h2>'
+                     f'<p class=hint style="margin:-4px 0 8px">Selected {val.get("selected",0)} · '
+                     f'<b style="color:var(--ok)">valid {val.get("valid",0)}</b> · '
+                     f'invalid {n_inv} · duplicate {n_dup}</p>{detail}</div>')
+    cfg_panel = (f'<div class=panel style="margin-bottom:14px"><h2>Active configuration</h2>'
+                 f'<div class=cfgchips>{cfg_chips}</div></div>')
+
     topbar = (f'<div class=tt>Review your headshots'
               f'<small>Original vs. new headshot. Keep the ones you like, then download.</small></div>'
               f'<div class=actions>'
               f'<a class="btn ghost sm" href="/jobs/{jid}/edit">{ICON["edit"]} Edit all</a>'
-              f'<a class="btn sm" href="/jobs/{jid}/download?scope=approved">{ICON["download"]} Download kept</a>'
+              f'<a class="btn sm" href="/jobs/{jid}/download?scope=approved">{ICON["download"]} Download approved</a>'
               f'<a class="btn ghost sm" href="/jobs/{jid}/download?scope=all">{ICON["download"]} Download all</a>'
+              f'<a class="btn ghost sm" href="/jobs/{jid}/report.csv">{ICON["download"]} CSV report</a>'
+              f'<a class="btn ghost sm" href="/jobs/{jid}/failed_report">{ICON["download"]} Failed report</a>'
               f'{_delete_form(jid)}</div>')
     content = f"""
     <div class=stats>
@@ -1293,12 +1436,18 @@ def _review_page(j: dict) -> str:
         <form action="/jobs/{jid}/reroll" method=post style=margin:0 title="Generate fresh versions of the failed and rejected photos">
           <button class="btn ghost sm" type=submit>{ICON["reroll"]} Retry the rejected ones</button></form>
       </div>
-      <form action="/jobs/{jid}/rerun" method=post class=actions style="margin:0;align-items:center" title="Run the same faces again in a different style">
-        <span class=faint style="font-size:13px">Try a different style:</span>
-        <select name=style style="width:auto">{style_opts}</select>
-        <button class="btn ghost sm" type=submit>{ICON["spark"]} Run again</button>
-      </form>
+      <div class=actions style="margin:0;align-items:center;flex-wrap:wrap">
+        <form action="/jobs/{jid}/rerun" method=post class=actions style="margin:0;align-items:center" title="Run the same faces again in a different style">
+          <span class=faint style="font-size:13px">Try a different style:</span>
+          <select name=style style="width:auto">{style_opts}</select>
+          <button class="btn ghost sm" type=submit>{ICON["spark"]} Run again</button>
+        </form>
+        <form action="/jobs/{jid}/compare" method=post style=margin:0 title="Run the same faces with a contrasting config and compare side by side">
+          <button class="btn ghost sm" type=submit>{ICON["grid"]} A/B compare</button>
+        </form>
+      </div>
     </div>
+    {cfg_panel}{val_panel}
     <div class=gallery>{tiles or '<div class="panel empty">No headshots to show yet.</div>'}</div>
     <div id=toast></div>
     <script>
@@ -1797,9 +1946,132 @@ def download(job_id: str, scope: str = "approved"):
             if p and p.is_file():
                 z.write(p, arcname=f"{stem}.jpg")
     buf.seek(0)
-    fname = f"facefoundry_{job_id}_{scope}.zip"
+    # Primary artifact name follows the spec §25 convention when this job is a
+    # tagged batch, e.g. Batch_01_Approved.zip.
+    batch_id = _job_batch_id(job_id)
+    if batch_id and scope == "approved":
+        fname = f"Batch_{batch_id}_Approved.zip"
+    else:
+        fname = f"facefoundry_{job_id}_{scope}.zip"
     return StreamingResponse(buf, media_type="application/zip",
                              headers={"Content-Disposition": f'attachment; filename="{fname}"'})
+
+
+@app.get("/jobs/{job_id}/report.csv")
+def download_csv(job_id: str):
+    """processing_report.csv for this job/batch (spec §26)."""
+    if not db.get_job(job_id):
+        return JSONResponse({"error": "not found"}, status_code=404)
+    csv_text = reporting.csv_report(job_id)
+    batch_id = _job_batch_id(job_id) or job_id
+    fname = f"processing_report_{batch_id}.csv"
+    return StreamingResponse(io.BytesIO(csv_text.encode("utf-8")), media_type="text/csv",
+                             headers={"Content-Disposition": f'attachment; filename="{fname}"'})
+
+
+@app.get("/jobs/{job_id}/failed_report")
+def download_failed_report(job_id: str):
+    """Plain-text list of failed/manual-review images + reasons (spec §25)."""
+    if not db.get_job(job_id):
+        return JSONResponse({"error": "not found"}, status_code=404)
+    lines = [f"{r['stem']}\t{r['state']}\tattempts={r['attempts']}\t{r['error']}"
+             for r in reporting.per_image(job_id)
+             if r["state"] in (reporting.S_FAILED, reporting.S_MANUAL)]
+    body = ("\n".join(lines) or "No failed images.") + "\n"
+    batch_id = _job_batch_id(job_id) or job_id
+    return StreamingResponse(io.BytesIO(body.encode("utf-8")), media_type="text/plain",
+                             headers={"Content-Disposition": f'attachment; filename="failed_{batch_id}.txt"'})
+
+
+@app.post("/jobs/{job_id}/materialize")
+def materialize(job_id: str) -> JSONResponse:
+    """(Re)write outputs/batch_NN/{approved,review,failed}/ + CSV per current
+    review decisions (spec §24)."""
+    if not db.get_job(job_id):
+        return JSONResponse({"error": "not found"}, status_code=404)
+    try:
+        base = reporting.materialize_batch(job_id)
+        return JSONResponse({"ok": True, "path": str(base)})
+    except Exception as e:  # noqa: BLE001
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+# ============================================================================
+# A/B test mode (spec §32): run the SAME faces two ways and compare side by side.
+# ============================================================================
+@app.post("/jobs/{job_id}/compare")
+def compare_launch(job_id: str, style: str = Form("")) -> RedirectResponse:
+    """Launch a sibling job over the same originals with a contrasting style, so
+    the operator can judge new-vs-old on identical inputs before scaling."""
+    j = db.get_job(job_id)
+    if not j:
+        return RedirectResponse("/", status_code=303)
+    src_in = JOBS_DIR / job_id / "input"
+    originals = [p for p in src_in.iterdir() if p.suffix.lower() in IMAGE_EXTS] if src_in.is_dir() else []
+    if not originals:
+        return RedirectResponse(f"/jobs/{job_id}", status_code=303)
+
+    cur_style = j["style"]
+    # Default the B side to the "other" engine config: if A is the new trainer
+    # style, B is the legacy corporate/square baseline, and vice-versa.
+    if style not in {v for v, _, _ in STYLES}:
+        style = "corporate" if cur_style == DEFAULT_STYLE else DEFAULT_STYLE
+
+    new_id = slugify_job_id(f"{job_id}-vs-{style[:6]}{int(time.time()) % 1000}")
+    up_dir = JOBS_DIR / new_id / "uploads"
+    up_dir.mkdir(parents=True, exist_ok=True)
+    for p in originals:
+        (up_dir / p.name).write_bytes(p.read_bytes())
+    cfg = dict(json.loads(j["config"]))
+    cfg["job_id"] = new_id
+    cfg["style_preset"] = style
+    cfg["compare_of"] = job_id
+    cfg["limit"] = None
+    if style == DEFAULT_STYLE:
+        cfg["aspect"] = "portrait_3545"
+    db.create_job(new_id, style, cfg)
+    runner.start_job(new_id, up_dir, cfg)
+    return RedirectResponse(f"/compare?a={job_id}&b={new_id}", status_code=303)
+
+
+@app.get("/compare", response_class=HTMLResponse)
+def compare_view(a: str = "", b: str = "") -> HTMLResponse:
+    """Side-by-side 'after' galleries for two jobs, matched by filename."""
+    ja, jb = db.get_job(a), db.get_job(b)
+    if not ja or not jb:
+        return HTMLResponse(_shell("Compare", "", '<div class=tt>Compare</div>',
+                                   '<div class="panel empty">Pick two valid jobs to compare.</div>'), 404)
+    ra = {r["stem"] for r in (_results(a) or {}).get("results", []) if r.get("status") == "ok"}
+    rb = {r["stem"] for r in (_results(b) or {}).get("results", []) if r.get("status") == "ok"}
+    stems = sorted(ra | rb)
+
+    def _label(job):
+        return next((n for v, n, _ in STYLES if v == job["style"]), job["style"])
+    rows = ""
+    for stem in stems:
+        left = (f'<img loading=lazy src="/jobs/{a}/image/output/{stem}">' if stem in ra
+                else '<div class=failbox>no output</div>')
+        right = (f'<img loading=lazy src="/jobs/{b}/image/output/{stem}">' if stem in rb
+                 else '<div class=failbox>no output</div>')
+        rows += (f'<div class=cmprow><div class=cmpname>{escape(stem)}</div>'
+                 f'<div class=cmppair><figure>{left}</figure><figure>{right}</figure></div></div>')
+    if not rows:
+        rows = '<div class="panel empty">No results yet — reload once both jobs finish.</div>'
+    extra = """<style>
+    .cmphead{display:grid;grid-template-columns:1fr 1fr;gap:2px;position:sticky;top:0;background:var(--panel);
+      border:1px solid var(--line);border-radius:12px;overflow:hidden;margin-bottom:12px;z-index:2}
+    .cmphead div{padding:12px 16px;font-weight:600}
+    .cmprow{margin-bottom:14px}.cmpname{font-size:12px;color:var(--faint);margin-bottom:4px;font-weight:600}
+    .cmppair{display:grid;grid-template-columns:1fr 1fr;gap:2px;background:var(--line);border-radius:10px;overflow:hidden}
+    .cmppair img{width:100%;display:block}
+    .cmppair .failbox{display:grid;place-items:center;min-height:120px;color:var(--bad);background:var(--bad-soft)}
+    </style>"""
+    topbar = ('<div class=tt>A/B comparison<small>Same faces, two configurations</small></div>'
+              f'<div class=actions><a class="btn ghost sm" href="/jobs/{a}">Open A</a>'
+              f'<a class="btn ghost sm" href="/jobs/{b}">Open B</a></div>')
+    content = (f'<div class=cmphead><div>A · {escape(_label(ja))} <span class=faint>({escape(a)})</span></div>'
+               f'<div>B · {escape(_label(jb))} <span class=faint>({escape(b)})</span></div></div>{rows}')
+    return HTMLResponse(_shell("A/B compare · FaceFoundry", "", topbar, content, extra))
 
 
 @app.get("/jobs/{job_id}/download/{stem}")
@@ -1855,6 +2127,11 @@ def reroll(job_id: str) -> RedirectResponse:
     cfg["seed_base"] = int(cfg.get("seed_base", 42)) + 1000
     cfg["limit"] = None
     db.create_job(new_id, j["style"], cfg)
+    # Carry the attempt count forward (+1) so an image flagged MANUAL REVIEW
+    # after MAX_ATTEMPTS keeps that history across reprocess rounds (spec §21).
+    prev = db.get_attempts(job_id)
+    for stem in redo:
+        db.set_attempts(new_id, stem, prev.get(stem, 1) + 1)
     runner.start_job(new_id, up_dir, cfg)
     return RedirectResponse(f"/jobs/{new_id}", status_code=303)
 
