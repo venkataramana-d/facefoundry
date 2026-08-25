@@ -58,6 +58,15 @@ def init() -> None:
                 decision  TEXT,        -- approved | rejected
                 PRIMARY KEY (job_id, stem)
             )""")
+        # Reprocess attempt counter per image (spec §21). Keyed by the ORIGINAL
+        # job + stem so attempts accumulate across reprocess rounds.
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS attempts (
+                job_id    TEXT,
+                stem      TEXT,
+                attempt   INTEGER DEFAULT 1,
+                PRIMARY KEY (job_id, stem)
+            )""")
 
 
 def create_job(job_id: str, style: str, config: dict) -> None:
@@ -99,6 +108,7 @@ def delete_job(job_id: str) -> None:
     with _lock, _conn() as c:
         c.execute("DELETE FROM jobs WHERE id=?", (job_id,))
         c.execute("DELETE FROM reviews WHERE job_id=?", (job_id,))
+        c.execute("DELETE FROM attempts WHERE job_id=?", (job_id,))
 
 
 # ---- Phase 4: per-image review decisions -----------------------------------
@@ -116,3 +126,34 @@ def get_reviews(job_id: str) -> dict[str, str]:
             "SELECT stem, decision FROM reviews WHERE job_id=?", (job_id,)
         ).fetchall()
     return {r["stem"]: r["decision"] for r in rows}
+
+
+# ---- Reprocess attempt tracking (spec §21) ---------------------------------
+def get_attempts(job_id: str) -> dict[str, int]:
+    with _lock, _conn() as c:
+        rows = c.execute(
+            "SELECT stem, attempt FROM attempts WHERE job_id=?", (job_id,)
+        ).fetchall()
+    return {r["stem"]: r["attempt"] for r in rows}
+
+
+def bump_attempts(job_id: str, stems: list[str]) -> None:
+    """Increment (or initialize to 2 - i.e. a first reprocess) the attempt count
+    for each stem. A brand-new job's images are implicitly attempt 1."""
+    if not stems:
+        return
+    with _lock, _conn() as c:
+        for stem in stems:
+            c.execute(
+                "INSERT INTO attempts (job_id, stem, attempt) VALUES (?,?,2) "
+                "ON CONFLICT(job_id, stem) DO UPDATE SET attempt = attempt + 1",
+                (job_id, stem),
+            )
+
+
+def set_attempts(job_id: str, stem: str, attempt: int) -> None:
+    with _lock, _conn() as c:
+        c.execute(
+            "INSERT OR REPLACE INTO attempts (job_id, stem, attempt) VALUES (?,?,?)",
+            (job_id, stem, attempt),
+        )

@@ -5,11 +5,12 @@ progress events into the SQLite store so the web UI can poll status.
 
 from __future__ import annotations
 
+import os
 import threading
 import traceback
 from pathlib import Path
 
-from . import api_engine, db
+from . import api_engine, db, reporting
 from .kaggle_client import JobError, resume_job, run_job
 
 # job_id -> Thread, so we can tell if a job is still actively running.
@@ -17,6 +18,21 @@ from .kaggle_client import JobError, resume_job, run_job
 # read/write this dict - an unlocked dict race can leak zombie references.
 _threads: dict[str, threading.Thread] = {}
 _threads_lock = threading.Lock()
+
+
+def _max_concurrent() -> int:
+    """Concurrent GPU jobs cap (spec §17). Configurable via MAX_CONCURRENT_JOBS
+    so it can be tuned to the actual GPU/Kaggle capacity. Default 2."""
+    try:
+        return max(1, int(os.getenv("MAX_CONCURRENT_JOBS", "2")))
+    except ValueError:
+        return 2
+
+
+# A fresh job acquires a slot before it does GPU work; extra jobs stay 'queued'
+# in the DB until a slot frees. Resume (reconnect) is NOT gated - it's attaching
+# to an already-running kernel, not starting new GPU work.
+_JOB_SLOTS = threading.Semaphore(_max_concurrent())
 
 
 # Map each orchestrator stage to a normalized step index for the UI stepper.
@@ -59,6 +75,12 @@ def _track(job_id: str, work) -> None:
             failed=summary.get("failed") or 0,
             error=None,
         )
+        # Materialize outputs/batch_NN/{approved,review,failed}/ + CSV (spec §24/§26).
+        # Best-effort: a reporting hiccup must never mark a good job as failed.
+        try:
+            reporting.materialize_batch(job_id)
+        except Exception:
+            traceback.print_exc()
     except JobError as e:
         db.update_job(job_id, status="failed", stage="error", message=str(e).splitlines()[0],
                       error=str(e))
@@ -69,17 +91,27 @@ def _track(job_id: str, work) -> None:
 
 
 def _run(job_id: str, images_dir: Path, cfg: dict) -> None:
-    # Advanced engine: when an image-API key is configured, generate via the
-    # image model (fast, photoreal). Otherwise fall back to the Kaggle GPU
-    # pipeline. Same job-folder contract either way, so the UI is unchanged.
-    if api_engine.is_configured():
-        db.update_job(job_id, status="running", stage="pack", step=1,
-                      message="Preparing images (image-API engine)")
-        _track(job_id, lambda oe: api_engine.run_api_job(images_dir, cfg, job_id, on_event=oe))
-        return
-    db.update_job(job_id, status="running", stage="auth", step=1,
-                  message="Authenticating with Kaggle")
-    _track(job_id, lambda oe: run_job(images_dir, cfg, job_id, on_event=oe))
+    # Wait for a concurrency slot (spec §17). While blocked the job shows as
+    # 'queued'; the moment a slot frees it flips to 'running'.
+    acquired = _JOB_SLOTS.acquire(blocking=False)
+    if not acquired:
+        db.update_job(job_id, status="queued", stage="queued", step=0,
+                      message="Waiting for a free GPU slot")
+        _JOB_SLOTS.acquire()  # block until a slot frees
+    try:
+        # Advanced engine: when an image-API key is configured, generate via the
+        # image model (fast, photoreal). Otherwise fall back to the Kaggle GPU
+        # pipeline. Same job-folder contract either way, so the UI is unchanged.
+        if api_engine.is_configured():
+            db.update_job(job_id, status="running", stage="pack", step=1,
+                          message="Preparing images (image-API engine)")
+            _track(job_id, lambda oe: api_engine.run_api_job(images_dir, cfg, job_id, on_event=oe))
+            return
+        db.update_job(job_id, status="running", stage="auth", step=1,
+                      message="Authenticating with Kaggle")
+        _track(job_id, lambda oe: run_job(images_dir, cfg, job_id, on_event=oe))
+    finally:
+        _JOB_SLOTS.release()
 
 
 def _resume(job_id: str) -> None:

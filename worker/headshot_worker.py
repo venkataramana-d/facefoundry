@@ -234,6 +234,24 @@ STYLE_PRESETS = {
                    "unretouched, sharp focus on the eyes, 85mm, realistic photograph"),
         "negative": _NEG,
     },
+    # NEW MASTER STYLE (spec §7/§8/§9). The Master Prompt is distilled to fit
+    # CLIP's 77-token cap, front-loaded with colour + wardrobe + background so
+    # none of it truncates. The rest of the §8 intent (no logo/text, no beauty
+    # retouch, keep identity) is enforced by the extended negative below plus the
+    # post-process discipline (GFPGAN blended low, no rembg). Charcoal suit /
+    # white shirt / light-grey polka-dot tie / clean light studio bg.
+    "corporate_trainer_profile": {
+        "prompt": ("RAW color photo, professional corporate LinkedIn headshot of a person, "
+                   "chest up, tailored charcoal dark-grey suit, crisp white dress shirt, "
+                   "light-grey polka-dot tie, clean white to light-grey studio backdrop, "
+                   "soft even studio lighting, keeps eyeglasses, keeps real age, calm confident "
+                   "subtle smile, natural detailed skin texture, sharp focus on the eyes, 85mm, "
+                   "realistic photograph"),
+        "negative": (_NEG + ", different person, identity change, face replacement, beautified, "
+                     "de-aged, missing glasses, extra glasses, extra accessories, office "
+                     "background, outdoor background, busy background, strong shadows, dramatic "
+                     "lighting, illustration, 3d render, uncanny face"),
+    },
 }
 
 
@@ -580,6 +598,14 @@ def make_processor(cfg, pipe, face_app, draw_kps, device):
 
     gen_size = int(cfg["img_size"])          # SDXL renders best at its native 1024
     out_size = int(cfg.get("output_size", gen_size))
+    # Native render dimensions per aspect (spec §11). 35:45 renders at 896x1152
+    # (== 0.7778, both /64) so we get true portrait framing instead of padding a
+    # square. Every other aspect keeps the square native render.
+    aspect = cfg.get("aspect", "square")
+    if aspect == "portrait_3545":
+        gen_w, gen_h = 896, 1152
+    else:
+        gen_w, gen_h = gen_size, gen_size
     # Edstellar look: keep InstantID at its safe defaults (identity 0.8, guidance
     # 5.0). Pushing these higher over-constrains the face and produces distorted,
     # over-fried results - the colour + white background come from the prompt and
@@ -588,7 +614,7 @@ def make_processor(cfg, pipe, face_app, draw_kps, device):
     guidance = cfg["guidance"]          # keep the standard 5.0 - lower drains colour
     enhancer = _load_face_enhancer() if cfg.get("face_enhance") else None
     bg_session = _load_bg_remover() if cfg.get("white_background") else None
-    upscaler = _load_realesrgan(out_size) if (out_size > gen_size and cfg.get("realesrgan_upscale", True)) else None
+    upscaler = _load_realesrgan(out_size) if (out_size > max(gen_w, gen_h) and cfg.get("realesrgan_upscale", True)) else None
 
     def process(src_path, dst_path, seed, avg_embedding=None):
         img = cv2.imread(src_path)
@@ -605,14 +631,33 @@ def make_processor(cfg, pipe, face_app, draw_kps, device):
         # and shift it DOWN, so the generated head sits smaller with clear space
         # above it (full head, nothing cut off). Placement 22% from the top gives
         # a natural studio-portrait headroom.
-        try:
-            kw, kh = int(kps.width * 0.72), int(kps.height * 0.72)
-            kctrl = Image.new("RGB", (kps.width, kps.height), (0, 0, 0))
-            kctrl.paste(kps.resize((kw, kh), Image.LANCZOS),
-                        ((kps.width - kw) // 2, int((kps.height - kh) * 0.22)))
-            kps = kctrl
-        except Exception as e:
-            print(f"[framing] headroom adjust skipped: {e}", flush=True)
+        if aspect == "portrait_3545":
+            # Build the keypoint control canvas at the GENERATION aspect (896x1152)
+            # so InstantID doesn't squash the face onto a portrait frame. Scale the
+            # keypoints uniformly (preserves landmark geometry / pose) to ~72% of
+            # the frame height, centre horizontally, and leave studio headroom.
+            try:
+                sw, sh = kps.size
+                scale = (0.72 * gen_h) / sh
+                nw, nh = max(1, int(sw * scale)), max(1, int(sh * scale))
+                if nw > gen_w:                     # clamp very wide sources to frame width
+                    scale = (0.92 * gen_w) / sw
+                    nw, nh = max(1, int(sw * scale)), max(1, int(sh * scale))
+                kctrl = Image.new("RGB", (gen_w, gen_h), (0, 0, 0))
+                kctrl.paste(kps.resize((nw, nh), Image.LANCZOS),
+                            ((gen_w - nw) // 2, int((gen_h - nh) * 0.18)))
+                kps = kctrl
+            except Exception as e:
+                print(f"[framing] 35:45 headroom adjust skipped: {e}", flush=True)
+        else:
+            try:
+                kw, kh = int(kps.width * 0.72), int(kps.height * 0.72)
+                kctrl = Image.new("RGB", (kps.width, kps.height), (0, 0, 0))
+                kctrl.paste(kps.resize((kw, kh), Image.LANCZOS),
+                            ((kps.width - kw) // 2, int((kps.height - kh) * 0.22)))
+                kps = kctrl
+            except Exception as e:
+                print(f"[framing] headroom adjust skipped: {e}", flush=True)
         # Use the averaged batch embedding when caller supplied one - sharper
         # identity across a batch of the same person's photos.
         embedding = avg_embedding if avg_embedding is not None else face["embedding"]
@@ -623,7 +668,7 @@ def make_processor(cfg, pipe, face_app, draw_kps, device):
             controlnet_conditioning_scale=id_scale,
             ip_adapter_scale=cfg["adapter_scale"],
             num_inference_steps=cfg["num_steps"], guidance_scale=guidance,
-            width=gen_size, height=gen_size, generator=gen,
+            width=gen_w, height=gen_h, generator=gen,
         ).images[0]
         # Optional GFPGAN face restoration (sharper eyes/skin). Fully guarded.
         # GFPGAN "beautifies" - it smooths skin into a waxy/plastic look and
@@ -662,17 +707,22 @@ def make_processor(cfg, pipe, face_app, draw_kps, device):
         # Upscale to requested output resolution. Real-ESRGAN preserves detail
         # far better than plain Lanczos at 2K/4K; falls back to Lanczos+unsharp
         # if the upscaler wasn't loadable.
-        if out_size > gen_size:
+        if out_size > max(gen_w, gen_h):
+            def _lanczos_up(im):
+                # Ratio-preserving upscale so the longest edge == out_size (never
+                # forces a square, so 35:45 portraits keep their aspect).
+                w, h = im.size
+                s = out_size / max(w, h)
+                im = im.resize((max(1, int(w * s)), max(1, int(h * s))), Image.LANCZOS)
+                return im.filter(ImageFilter.UnsharpMask(radius=1.2, percent=35, threshold=3))
             if upscaler is not None:
                 try:
                     result = upscaler(result)
                 except Exception as e:
                     print(f"[upscale] Real-ESRGAN failed, using Lanczos: {e}", flush=True)
-                    result = result.resize((out_size, out_size), Image.LANCZOS)
-                    result = result.filter(ImageFilter.UnsharpMask(radius=1.2, percent=35, threshold=3))
+                    result = _lanczos_up(result)
             else:
-                result = result.resize((out_size, out_size), Image.LANCZOS)
-                result = result.filter(ImageFilter.UnsharpMask(radius=1.2, percent=35, threshold=3))
+                result = _lanczos_up(result)
         # (No extra sharpening pass: Real-ESRGAN already gives clean, crisp detail.
         # An added unsharp mask risked an over-processed / etched look, so we leave
         # the render as-is to keep it natural.)
